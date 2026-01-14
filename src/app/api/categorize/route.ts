@@ -5,6 +5,15 @@ import { getServerEnv } from "@/lib/env";
 
 const schema = z.object({
   text: z.string().min(1),
+  accounts: z
+    .array(
+      z.object({
+        id: z.string(),
+        account_name: z.string(),
+        account_type: z.string(),
+      }),
+    )
+    .optional(),
 });
 
 function ruleBased(text: string) {
@@ -45,6 +54,14 @@ export async function POST(req: Request) {
 
   try {
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
+    const accounts = parsed.data.accounts ?? [];
+    const accountsContext =
+      accounts.length > 0
+        ? `\n\nAvailable accounts:\n${accounts
+            .map((a) => `- ID: ${a.id}, Name: "${a.account_name}", Type: ${a.account_type}`)
+            .join("\n")}\n\nMatch the payment method mentioned in the user's text to one of these accounts by name. Return the account ID if you find a match.`
+        : "";
+
     const resp = await client.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0,
@@ -56,9 +73,12 @@ export async function POST(req: Request) {
             "Given the user's description of a transaction, extract:\n" +
             "- categoryHint: short category name like \"Transportation\", \"Household\", \"Personal\", \"Recreational\", \"Income\".\n" +
             "- paymentModeName: human-readable payment method or specific card/account name, e.g. \"Apple Card\", \"Chase Credit Card\", \"cash\".\n" +
+            "- accountId: the ID of the matching account from the available accounts list (if a match is found, otherwise null).\n" +
+            "- descriptionSuggestion: a clean, short description (2-5 words) for the transaction, removing payment method mentions, friend clauses, and amounts. Examples: \"Groceries\", \"Dinner with friend\", \"Amex card purchase\".\n" +
             "- friendWillReimburse: true if some part is clearly for a friend and they will pay back.\n" +
             "- friendShareDollars: how many dollars of the total are for the friend (0 if not clear).\n" +
-            "Respond with JSON only.",
+            "Respond with JSON only." +
+            accountsContext,
         },
         { role: "user", content: parsed.data.text },
       ],
@@ -69,14 +89,23 @@ export async function POST(req: Request) {
     const json = JSON.parse(content) as {
       categoryHint?: string;
       paymentModeName?: string;
+      accountId?: string | null;
+      descriptionSuggestion?: string;
       confidence?: number;
       friendWillReimburse?: boolean;
       friendShareDollars?: number;
     };
+
+    // Validate accountId exists in provided accounts
+    const validAccountId =
+      json.accountId && accounts.some((a) => a.id === json.accountId) ? json.accountId : null;
+
     return NextResponse.json({
       suggestion: {
         categoryHint: json.categoryHint,
         paymentModeName: json.paymentModeName,
+        accountId: validAccountId,
+        descriptionSuggestion: json.descriptionSuggestion,
         friendWillReimburse: Boolean(json.friendWillReimburse),
         friendShareDollars:
           typeof json.friendShareDollars === "number" && json.friendShareDollars > 0

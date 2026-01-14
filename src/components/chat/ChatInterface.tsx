@@ -14,6 +14,8 @@ const parseResponseSchema = z.object({
     direction: z.enum(["expense", "income", "transfer"]),
     paymentModeName: z.string().optional(),
     categoryHint: z.string().optional(),
+    accountId: z.string().nullable().optional(),
+    descriptionSuggestion: z.string().optional(),
     friendShareCents: z.number().int().nonnegative().optional(),
     friendWillReimburse: z.boolean().optional(),
   }),
@@ -37,11 +39,19 @@ export function ChatInterface() {
   const [draft, setDraft] = useState<ParsedTransaction | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingItem[]>([]);
+  const [accounts, setAccounts] = useState<Array<{ id: string; account_name: string; account_type: string }>>([]);
 
   const canSubmit = useMemo(() => input.trim().length > 0 && !isParsing, [input, isParsing]);
 
   useEffect(() => {
     setPending(loadPending());
+    // Fetch accounts for AI context
+    fetch("/api/accounts/list")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.accounts) setAccounts(data.accounts);
+      })
+      .catch(() => null);
   }, []);
 
   useEffect(() => {
@@ -84,11 +94,11 @@ export function ChatInterface() {
     setIsParsing(true);
 
     try {
-      // Kick off AI suggestion in parallel (best effort).
+      // Kick off AI suggestion in parallel (best effort), with accounts context.
       const suggestionPromise = fetch("/api/categorize", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, accounts }),
       })
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null);
@@ -106,6 +116,11 @@ export function ChatInterface() {
         typeof suggestion?.suggestion?.paymentModeName === "string" ? suggestion.suggestion.paymentModeName : undefined;
       const suggestedCategory =
         typeof suggestion?.suggestion?.categoryHint === "string" ? suggestion.suggestion.categoryHint : undefined;
+      const suggestedAccountId = suggestion?.suggestion?.accountId ?? null;
+      const suggestedDescription =
+        typeof suggestion?.suggestion?.descriptionSuggestion === "string"
+          ? suggestion.suggestion.descriptionSuggestion
+          : undefined;
       const suggestedFriendShareDollars =
         typeof suggestion?.suggestion?.friendShareDollars === "number"
           ? Math.max(0, suggestion.suggestion.friendShareDollars)
@@ -118,6 +133,8 @@ export function ChatInterface() {
         ...validated.parsed,
         paymentModeName: validated.parsed.paymentModeName ?? suggestedPayment,
         categoryHint: validated.parsed.categoryHint ?? suggestedCategory,
+        accountId: validated.parsed.accountId ?? suggestedAccountId,
+        description: suggestedDescription ?? validated.parsed.description,
         friendShareCents:
           validated.parsed.friendShareCents ??
           (suggestedFriendShareDollars > 0
@@ -152,7 +169,10 @@ export function ChatInterface() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-8">
-      <h2 className="text-xl font-semibold">Chat</h2>
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold">💬 Quick Log</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Type a transaction and we'll parse it for you</p>
+      </div>
       {pending.length > 0 ? (
         <div className="mt-3 rounded-md border bg-yellow-50 px-3 py-2 text-sm">
           You have {pending.length} pending transaction{pending.length === 1 ? "" : "s"} to sync (will auto-sync when
@@ -164,8 +184,10 @@ export function ChatInterface() {
           <div
             key={idx}
             className={[
-              "max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-6",
-              m.role === "user" ? "ml-auto bg-black text-white" : "bg-muted text-foreground",
+              "max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm",
+              m.role === "user"
+                ? "ml-auto bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+                : "bg-white border text-foreground",
             ].join(" ")}
           >
             {m.content}
@@ -180,7 +202,7 @@ export function ChatInterface() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder='e.g. "Spent $23.45 on groceries with credit card"'
-          className="flex-1 rounded-md border px-3 py-2"
+          className="flex-1 rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-sm shadow-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSubmit();
           }}
@@ -189,9 +211,9 @@ export function ChatInterface() {
           type="button"
           onClick={handleSubmit}
           disabled={!canSubmit}
-          className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+          className="rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 text-sm font-medium text-white shadow-md transition-all hover:shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {isParsing ? "Parsing…" : "Send"}
+          {isParsing ? "⏳ Parsing…" : "📤 Send"}
         </button>
       </div>
 
@@ -243,12 +265,15 @@ function ConfirmDrawer(props: {
 
   return (
     <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/40" onClick={props.onClose} />
-      <div className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-3xl rounded-t-2xl bg-white p-6 shadow-lg">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Confirm</h3>
-          <button className="rounded-md border px-2 py-1 text-sm" onClick={props.onClose}>
-            Close
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={props.onClose} />
+      <div className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-3xl rounded-t-3xl bg-white p-6 shadow-2xl">
+        <div className="flex items-center justify-between border-b pb-4">
+          <h3 className="text-xl font-bold">✅ Confirm Transaction</h3>
+          <button
+            className="rounded-lg border-2 border-gray-200 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-gray-100"
+            onClick={props.onClose}
+          >
+            ✕ Close
           </button>
         </div>
 
@@ -349,12 +374,15 @@ function ConfirmDrawer(props: {
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
-          <button className="rounded-md border px-4 py-2 text-sm font-medium" onClick={props.onClose}>
-            Back
+        <div className="mt-6 flex justify-end gap-3 border-t pt-4">
+          <button
+            className="rounded-xl border-2 border-gray-200 px-6 py-2.5 text-sm font-medium transition-colors hover:bg-gray-50"
+            onClick={props.onClose}
+          >
+            ← Back
           </button>
           <button
-            className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white"
+            className="rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-2.5 text-sm font-medium text-white shadow-md transition-all hover:shadow-lg"
             onClick={async () => {
               // Wire to create endpoint in this todo (ledger-write-atomic)
               try {

@@ -10,6 +10,8 @@ const schema = z.object({
     direction: z.enum(["expense", "income", "transfer"]),
     paymentModeName: z.string().optional(),
     categoryHint: z.string().optional(),
+    accountId: z.string().nullable().optional(),
+    descriptionSuggestion: z.string().optional(),
     friendShareCents: z.number().int().nonnegative().optional(),
     friendWillReimburse: z.boolean().optional(),
   }),
@@ -53,9 +55,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "missing_accounts" }, { status: 500 });
   }
 
-  // Default payment account guess, but prefer a specific matching account name if suggested.
+  // Use AI-suggested accountId if provided, otherwise fall back to name matching.
   let paymentAccountId = checkingAccountId;
-  if (paymentModeName && accounts) {
+  if (parsed.data.parsed.accountId && accounts?.some((a) => a.id === parsed.data.parsed.accountId)) {
+    paymentAccountId = parsed.data.parsed.accountId!;
+  } else if (paymentModeName && accounts) {
     const byName = accounts.find((a) => a.account_name.toLowerCase().includes(paymentModeName));
     if (byName) {
       paymentAccountId = byName.id;

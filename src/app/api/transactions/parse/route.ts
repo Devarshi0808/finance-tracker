@@ -45,13 +45,20 @@ export async function POST(req: Request) {
   const direction = guessDirection(text);
   const paymentModeName = guessPaymentMode(text);
 
-  // crude description: remove amount tokens + common verbs
-  const description = text
-    .replace(/\$?\s*\d+(?:\.\d{1,2})?/g, "")
-    .replace(/\b(spent|spend|on|for|with|paid|pay|income|received|receive|transfer|moved|move)\b/gi, " ")
+  // Clean description: remove amounts, friend clauses, payment method mentions, common verbs
+  let description = text
+    .replace(/\$?\s*\d+(?:\.\d{1,2})?/g, "") // Remove amounts
+    .replace(/\b(of which|which|is for|for my friend|friend will|split|half|with friend)\b/gi, " ") // Remove friend clauses
+    .replace(/\b(on|using|with|via)\s+(apple card|amex|chase|credit card|debit card|cash|zelle)\b/gi, " ") // Remove payment method mentions
+    .replace(/\b(spent|spend|paid|pay|income|received|receive|transfer|moved|move)\b/gi, " ") // Remove common verbs
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 140);
+
+  // If description is too short or empty, use a generic fallback
+  if (description.length < 3) {
+    description = direction === "income" ? "Income" : direction === "transfer" ? "Transfer" : "Expense";
+  }
 
   return NextResponse.json({
     parsed: {

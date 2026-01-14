@@ -5,9 +5,11 @@ export type ParsedTransaction = {
   direction: "expense" | "income" | "transfer";
   paymentModeName?: string;
   categoryHint?: string;
-   // Friend-related: how much of this transaction is for a friend (they will reimburse you)
-   friendShareCents?: number;
-   friendWillReimburse?: boolean;
+  accountId?: string | null; // Suggested account ID from AI
+  descriptionSuggestion?: string; // AI-suggested clean description
+  // Friend-related: how much of this transaction is for a friend (they will reimburse you)
+  friendShareCents?: number;
+  friendWillReimburse?: boolean;
 };
 
 export type ChatMessage =
