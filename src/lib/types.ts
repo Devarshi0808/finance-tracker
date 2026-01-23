@@ -5,7 +5,10 @@ export type ParsedTransaction = {
   direction: "expense" | "income" | "transfer";
   paymentModeName?: string;
   categoryHint?: string;
-  accountId?: string | null; // Suggested account ID from AI
+  accountId?: string | null; // For income: receiving account, for expense: payment account, for transfer: TO account
+  fromAccountId?: string | null; // For transfers only: source account (where money leaves FROM)
+  fromAccountName?: string; // For transfers: extracted account name hint (e.g., "checking")
+  toAccountName?: string; // For transfers: extracted account name hint (e.g., "credit card")
   descriptionSuggestion?: string; // AI-suggested clean description
   // Friend-related: how much of this transaction is for a friend (they will reimburse you)
   friendShareCents?: number;

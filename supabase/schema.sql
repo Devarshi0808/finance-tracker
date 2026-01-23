@@ -6,7 +6,7 @@ create extension if not exists pgcrypto;
 
 -- Enums
 do $$ begin
-  create type public.account_type as enum ('checking','savings','credit_card','emergency_fund','income','expense');
+  create type public.account_type as enum ('checking','savings','credit_card','emergency_fund','income','expense','friends_owe');
 exception
   when duplicate_object then null;
 end $$;
@@ -17,6 +17,9 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 do $$ begin
   alter type public.account_type add value if not exists 'expense';
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter type public.account_type add value if not exists 'friends_owe';
 exception when duplicate_object then null; end $$;
 
 do $$ begin

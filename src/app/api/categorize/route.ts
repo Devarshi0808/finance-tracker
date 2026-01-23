@@ -74,9 +74,14 @@ export async function POST(req: Request) {
             "- categoryHint: short category name like \"Transportation\", \"Household\", \"Personal\", \"Recreational\", \"Income\".\n" +
             "- paymentModeName: human-readable payment method or specific card/account name, e.g. \"Apple Card\", \"Chase Credit Card\", \"cash\".\n" +
             "- accountId: the ID of the matching account from the available accounts list (if a match is found, otherwise null).\n" +
-            "- descriptionSuggestion: a clean, short description (2-5 words) for the transaction, removing payment method mentions, friend clauses, and amounts. Examples: \"Groceries\", \"Dinner with friend\", \"Amex card purchase\".\n" +
+            "  * For expenses: match the payment account (credit card, checking, etc.)\n" +
+            "  * For income: match the receiving account (checking, savings, etc.)\n" +
+            "  * For transfers: match the TO account (destination where money goes)\n" +
+            "- fromAccountId: for transfers only, the ID of the FROM account (source where money leaves).\n" +
+            "- descriptionSuggestion: a clean, short description (2-5 words) for the transaction, removing payment method mentions, friend clauses, and amounts. Examples: \"Groceries\", \"Dinner with friend\", \"Credit card payment\".\n" +
             "- friendWillReimburse: true if some part is clearly for a friend and they will pay back.\n" +
             "- friendShareDollars: how many dollars of the total are for the friend (0 if not clear).\n" +
+            "Match account names flexibly - \"Apple Card\" matches \"Apple Card\", \"credit card\" matches any credit card account, \"checking\" matches checking accounts.\n" +
             "Respond with JSON only." +
             accountsContext,
         },
@@ -90,6 +95,7 @@ export async function POST(req: Request) {
       categoryHint?: string;
       paymentModeName?: string;
       accountId?: string | null;
+      fromAccountId?: string | null;
       descriptionSuggestion?: string;
       confidence?: number;
       friendWillReimburse?: boolean;
@@ -99,12 +105,17 @@ export async function POST(req: Request) {
     // Validate accountId exists in provided accounts
     const validAccountId =
       json.accountId && accounts.some((a) => a.id === json.accountId) ? json.accountId : null;
+    
+    // Validate fromAccountId exists in provided accounts
+    const validFromAccountId =
+      json.fromAccountId && accounts.some((a) => a.id === json.fromAccountId) ? json.fromAccountId : null;
 
     return NextResponse.json({
       suggestion: {
         categoryHint: json.categoryHint,
         paymentModeName: json.paymentModeName,
         accountId: validAccountId,
+        fromAccountId: validFromAccountId,
         descriptionSuggestion: json.descriptionSuggestion,
         friendWillReimburse: Boolean(json.friendWillReimburse),
         friendShareDollars:
