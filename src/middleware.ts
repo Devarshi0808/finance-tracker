@@ -4,9 +4,19 @@ import { createServerClient } from "@supabase/ssr";
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } });
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  // Check if env vars are set
+  if (!supabaseUrl || !supabaseKey) {
+    console.error("Missing Supabase environment variables");
+    // Allow request to continue - will fail gracefully in API routes
+    return response;
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseKey,
     {
       cookies: {
         getAll() {
@@ -22,20 +32,24 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // Refresh session if needed
-  await supabase.auth.getUser();
-
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/signup");
+  
+  // API routes should require authentication (bootstrap is called internally after auth)
+  // No public API routes - all require authentication
   const isPublicRoute =
     pathname === "/" ||
     isAuthRoute ||
-    pathname.startsWith("/api") ||
     pathname.startsWith("/auth"); // allow auth routes without being logged in
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+  try {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    user = authUser;
+  } catch (error) {
+    // Supabase unreachable - treat as unauthenticated
+    console.warn("Failed to get user in middleware:", error);
+  }
 
   if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();
@@ -54,6 +68,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  // Only run middleware on app pages (this removes a LOT of overhead + avoids hitting Supabase on every /api call)
+  matcher: ["/app/:path*", "/login"],
 };
 

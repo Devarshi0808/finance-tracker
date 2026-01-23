@@ -15,10 +15,45 @@ type AccountWithBalance = Account & {
   current_balance_cents: number;
 };
 
+// Account types that are internal/system - never show to user
+const INTERNAL_TYPES = ["income", "expense"];
+
+// Grouping for display
+type AccountGroup = "bank" | "credit_card" | "friends";
+
+function getAccountGroup(type: string): AccountGroup | null {
+  if (INTERNAL_TYPES.includes(type)) return null; // Filter out
+  if (type === "credit_card") return "credit_card";
+  if (type === "friends_owe") return "friends";
+  // checking, savings, emergency_fund all go to "bank"
+  return "bank";
+}
+
+const GROUP_CONFIG: Record<AccountGroup, { title: string; emoji: string; addLabel: string; addType: string }> = {
+  bank: {
+    title: "Bank Accounts",
+    emoji: "🏦",
+    addLabel: "Add Bank Account",
+    addType: "checking",
+  },
+  credit_card: {
+    title: "Credit Cards",
+    emoji: "💳",
+    addLabel: "Add Credit Card",
+    addType: "credit_card",
+  },
+  friends: {
+    title: "Friends Owe Me",
+    emoji: "🤝",
+    addLabel: "", // Can't add more friend accounts
+    addType: "",
+  },
+};
+
 export function AccountsManager({ initialAccounts }: { initialAccounts: Account[] }) {
   const [accounts, setAccounts] = useState<AccountWithBalance[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [showAddForm, setShowAddForm] = useState<AccountGroup | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,7 +99,7 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: Account[
       });
       if (!res.ok) throw new Error("Failed to create account");
       await loadAccounts();
-      setShowAddForm(false);
+      setShowAddForm(null);
     } catch (err) {
       alert("Failed to create account. " + (err instanceof Error ? err.message : ""));
     }
@@ -93,70 +128,199 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: Account[
     );
   }
 
-  const accountTypes: Record<string, string> = {
-    checking: "Checking",
-    savings: "Savings",
-    credit_card: "Credit Card",
-    emergency_fund: "Emergency Fund",
-    income: "Income (internal)",
-    expense: "Expense (internal)",
+  // Filter out internal accounts and group the rest
+  const groupedAccounts: Record<AccountGroup, AccountWithBalance[]> = {
+    bank: [],
+    credit_card: [],
+    friends: [],
+  };
+
+  for (const acc of accounts) {
+    const group = getAccountGroup(acc.account_type);
+    if (group) {
+      groupedAccounts[group].push(acc);
+    }
+  }
+
+  // Calculate totals for each group
+  const groupTotals: Record<AccountGroup, number> = {
+    bank: groupedAccounts.bank.reduce((sum, acc) => sum + acc.current_balance_cents, 0),
+    credit_card: groupedAccounts.credit_card.reduce((sum, acc) => sum + acc.current_balance_cents, 0),
+    friends: groupedAccounts.friends.reduce((sum, acc) => sum + acc.current_balance_cents, 0),
   };
 
   return (
     <div className="mx-auto w-full max-w-4xl px-6 py-8">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">🏦 Accounts</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Manage your accounts and starting balances</p>
-        </div>
-        <button
-          onClick={() => setShowAddForm(true)}
-          className="rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 text-sm font-medium text-white shadow-md transition-all hover:shadow-lg"
-        >
-          ➕ Add Account
-        </button>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold">💰 My Finances</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Manage your accounts, cards, and track what friends owe you
+        </p>
       </div>
 
-      <p className="mt-2 text-sm text-muted-foreground">
-        Set your starting balances. Current balances include all transactions.
-      </p>
+      {/* Summary Cards */}
+      <div className="mb-8 grid gap-4 sm:grid-cols-3">
+        <SummaryCard
+          title="Total in Banks"
+          amount={groupTotals.bank}
+          emoji="🏦"
+          color="from-emerald-500 to-teal-600"
+        />
+        <SummaryCard
+          title="Credit Card Debt"
+          amount={groupTotals.credit_card}
+          emoji="💳"
+          color="from-rose-500 to-pink-600"
+          isDebt
+        />
+        <SummaryCard
+          title="Friends Owe Me"
+          amount={groupTotals.friends}
+          emoji="🤝"
+          color="from-amber-500 to-orange-600"
+        />
+      </div>
+
+      {/* Account Groups */}
+      {(["bank", "credit_card", "friends"] as AccountGroup[]).map((group) => (
+        <AccountGroupSection
+          key={group}
+          group={group}
+          accounts={groupedAccounts[group]}
+          config={GROUP_CONFIG[group]}
+          editingId={editingId}
+          onStartEdit={setEditingId}
+          onCancelEdit={() => setEditingId(null)}
+          onSaveBalance={handleUpdateBalance}
+          onShowAddForm={() => setShowAddForm(group)}
+          showAddForm={showAddForm === group}
+          onAdd={handleAdd}
+          onCancelAdd={() => setShowAddForm(null)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SummaryCard({
+  title,
+  amount,
+  emoji,
+  color,
+  isDebt = false,
+}: {
+  title: string;
+  amount: number;
+  emoji: string;
+  color: string;
+  isDebt?: boolean;
+}) {
+  const displayAmount = isDebt ? Math.abs(amount) : amount;
+  const prefix = isDebt && amount !== 0 ? "-" : "";
+
+  return (
+    <div className={`rounded-2xl bg-gradient-to-br ${color} p-5 text-white shadow-lg`}>
+      <div className="flex items-center gap-2 text-sm font-medium opacity-90">
+        <span>{emoji}</span>
+        <span>{title}</span>
+      </div>
+      <div className="mt-2 text-2xl font-bold">
+        {prefix}${centsToDollars(displayAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+      </div>
+    </div>
+  );
+}
+
+function AccountGroupSection({
+  group,
+  accounts,
+  config,
+  editingId,
+  onStartEdit,
+  onCancelEdit,
+  onSaveBalance,
+  onShowAddForm,
+  showAddForm,
+  onAdd,
+  onCancelAdd,
+}: {
+  group: AccountGroup;
+  accounts: AccountWithBalance[];
+  config: (typeof GROUP_CONFIG)[AccountGroup];
+  editingId: string | null;
+  onStartEdit: (id: string) => void;
+  onCancelEdit: () => void;
+  onSaveBalance: (id: string, cents: number) => void;
+  onShowAddForm: () => void;
+  showAddForm: boolean;
+  onAdd: (name: string, type: string, balance: number) => void;
+  onCancelAdd: () => void;
+}) {
+  const canAdd = group !== "friends"; // Friends account is singular
+
+  return (
+    <div className="mb-8">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-xl font-semibold">
+          {config.emoji} {config.title}
+        </h2>
+        {canAdd && (
+          <button
+            onClick={onShowAddForm}
+            className="rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-2 text-sm font-medium text-white shadow-md transition-all hover:shadow-lg"
+          >
+            ➕ {config.addLabel}
+          </button>
+        )}
+      </div>
 
       {showAddForm && (
         <AddAccountForm
-          onSave={(name, type, balance) => {
-            handleAdd(name, type, balance);
-          }}
-          onCancel={() => setShowAddForm(false)}
+          group={group}
+          defaultType={config.addType}
+          onSave={onAdd}
+          onCancel={onCancelAdd}
         />
       )}
 
-      <div className="mt-6 space-y-4">
-        {accounts.map((acc) => (
-          <AccountCard
-            key={acc.id}
-            account={acc}
-            accountTypeLabel={accountTypes[acc.account_type] ?? acc.account_type}
-            isEditing={editingId === acc.id}
-            onStartEdit={() => setEditingId(acc.id)}
-            onCancelEdit={() => setEditingId(null)}
-            onSaveBalance={(newCents) => handleUpdateBalance(acc.id, newCents)}
-          />
-        ))}
-      </div>
+      {accounts.length === 0 ? (
+        <div className="rounded-xl border-2 border-dashed border-gray-200 p-6 text-center text-muted-foreground">
+          No {config.title.toLowerCase()} yet.{" "}
+          {canAdd && (
+            <button onClick={onShowAddForm} className="text-blue-600 underline">
+              Add one
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {accounts.map((acc) => (
+            <AccountCard
+              key={acc.id}
+              account={acc}
+              group={group}
+              isEditing={editingId === acc.id}
+              onStartEdit={() => onStartEdit(acc.id)}
+              onCancelEdit={onCancelEdit}
+              onSaveBalance={(newCents) => onSaveBalance(acc.id, newCents)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 function AccountCard({
   account,
-  accountTypeLabel,
+  group,
   isEditing,
   onStartEdit,
   onCancelEdit,
   onSaveBalance,
 }: {
   account: AccountWithBalance;
-  accountTypeLabel: string;
+  group: AccountGroup;
   isEditing: boolean;
   onStartEdit: () => void;
   onCancelEdit: () => void;
@@ -164,30 +328,47 @@ function AccountCard({
 }) {
   const [balanceInput, setBalanceInput] = useState(centsToDollars(account.initial_balance_cents));
 
+  // For credit cards, show debt as positive (they owe the bank)
+  const isDebt = group === "credit_card";
+  const displayBalance = isDebt ? Math.abs(account.current_balance_cents) : account.current_balance_cents;
+  const balancePrefix = isDebt && account.current_balance_cents !== 0 ? "-" : "";
+
+  // Friendly type labels
+  const typeLabels: Record<string, string> = {
+    checking: "Checking",
+    savings: "Savings",
+    emergency_fund: "Emergency Fund",
+    credit_card: "Credit Card",
+    friends_owe: "Receivable",
+  };
+
   if (isEditing) {
     return (
-      <div className="rounded-xl border-2 border-blue-200 bg-gradient-to-br from-blue-50 to-white p-5 shadow-md">
-        <div className="flex items-center justify-between">
+      <div className="rounded-xl border-2 border-blue-300 bg-gradient-to-br from-blue-50 to-white p-5 shadow-md">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="font-medium">{account.account_name}</div>
-            <div className="text-sm text-muted-foreground">{accountTypeLabel}</div>
+            <div className="font-semibold">{account.account_name}</div>
+            <div className="text-sm text-muted-foreground">
+              {typeLabels[account.account_type] ?? account.account_type}
+            </div>
           </div>
           <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Initial $</span>
             <input
               type="number"
               step="0.01"
               value={balanceInput}
               onChange={(e) => setBalanceInput(Number(e.target.value))}
-              className="w-32 rounded-md border px-3 py-1 text-right"
+              className="w-28 rounded-md border px-3 py-2 text-right"
               placeholder="0.00"
             />
             <button
               onClick={() => onSaveBalance(dollarsToCents(balanceInput))}
-              className="rounded-md bg-black px-3 py-1 text-sm text-white"
+              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white"
             >
               Save
             </button>
-            <button onClick={onCancelEdit} className="rounded-md border px-3 py-1 text-sm">
+            <button onClick={onCancelEdit} className="rounded-md border px-4 py-2 text-sm">
               Cancel
             </button>
           </div>
@@ -197,24 +378,31 @@ function AccountCard({
   }
 
   return (
-    <div className="rounded-xl border bg-gradient-to-br from-white to-gray-50 p-5 shadow-sm transition-all hover:shadow-md">
-      <div className="flex items-center justify-between">
+    <div className="rounded-xl border bg-white p-5 shadow-sm transition-all hover:shadow-md">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="font-medium">{account.account_name}</div>
-          <div className="text-sm text-muted-foreground">{accountTypeLabel}</div>
+          <div className="font-semibold">{account.account_name}</div>
+          <div className="text-sm text-muted-foreground">
+            {typeLabels[account.account_type] ?? account.account_type}
+          </div>
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <div className="text-sm text-muted-foreground">Current Balance</div>
-            <div className="font-semibold">${centsToDollars(account.current_balance_cents)}</div>
+            <div className="text-xs text-muted-foreground">Current Balance</div>
+            <div className={`text-lg font-bold ${isDebt ? "text-rose-600" : "text-emerald-600"}`}>
+              {balancePrefix}${centsToDollars(displayBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+            </div>
             {account.initial_balance_cents !== account.current_balance_cents && (
               <div className="text-xs text-muted-foreground">
-                Initial: ${centsToDollars(account.initial_balance_cents)}
+                Initial: ${centsToDollars(Math.abs(account.initial_balance_cents)).toLocaleString("en-US", { minimumFractionDigits: 2 })}
               </div>
             )}
           </div>
-          <button onClick={onStartEdit} className="rounded-md border px-3 py-1 text-sm">
-            Edit Initial
+          <button
+            onClick={onStartEdit}
+            className="rounded-lg border border-gray-200 px-3 py-2 text-sm transition-colors hover:bg-gray-50"
+          >
+            ✏️ Edit
           </button>
         </div>
       </div>
@@ -223,28 +411,41 @@ function AccountCard({
 }
 
 function AddAccountForm({
+  group,
+  defaultType,
   onSave,
   onCancel,
 }: {
+  group: AccountGroup;
+  defaultType: string;
   onSave: (name: string, type: string, balance: number) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
-  const [type, setType] = useState("checking");
+  const [type, setType] = useState(defaultType);
   const [balance, setBalance] = useState(0);
 
+  const typeOptions =
+    group === "bank"
+      ? [
+          { value: "checking", label: "Checking" },
+          { value: "savings", label: "Savings" },
+          { value: "emergency_fund", label: "Emergency Fund" },
+        ]
+      : [{ value: "credit_card", label: "Credit Card" }];
+
   return (
-    <div className="mt-4 rounded-lg border p-4">
-      <h3 className="font-medium">Add New Account</h3>
-      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+    <div className="mb-4 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50 p-5">
+      <h3 className="mb-4 font-semibold">Add New {group === "bank" ? "Bank Account" : "Credit Card"}</h3>
+      <div className="grid gap-4 sm:grid-cols-3">
         <div>
-          <label className="mb-1 block text-sm font-medium">Account Name</label>
+          <label className="mb-1 block text-sm font-medium">Name</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Apple Card, Savings #1"
-            className="w-full rounded-md border px-3 py-2"
+            placeholder={group === "bank" ? "e.g. Chase Checking" : "e.g. Apple Card"}
+            className="w-full rounded-lg border px-3 py-2"
           />
         </div>
         <div>
@@ -252,37 +453,42 @@ function AddAccountForm({
           <select
             value={type}
             onChange={(e) => setType(e.target.value)}
-            className="w-full rounded-md border px-3 py-2"
+            className="w-full rounded-lg border px-3 py-2"
           >
-            <option value="checking">Checking</option>
-            <option value="savings">Savings</option>
-            <option value="credit_card">Credit Card</option>
-            <option value="emergency_fund">Emergency Fund</option>
+            {typeOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium">Initial Balance (USD)</label>
+          <label className="mb-1 block text-sm font-medium">
+            {group === "credit_card" ? "Current Balance Owed" : "Initial Balance"} ($)
+          </label>
           <input
             type="number"
             step="0.01"
             value={balance}
             onChange={(e) => setBalance(Number(e.target.value))}
             placeholder="0.00"
-            className="w-full rounded-md border px-3 py-2"
+            className="w-full rounded-lg border px-3 py-2"
           />
         </div>
       </div>
       <div className="mt-4 flex justify-end gap-2">
-        <button onClick={onCancel} className="rounded-md border px-4 py-2 text-sm">
+        <button onClick={onCancel} className="rounded-lg border px-4 py-2 text-sm">
           Cancel
         </button>
         <button
           onClick={() => {
             if (name.trim()) {
-              onSave(name.trim(), type, balance);
+              // For credit cards, store as negative (debt)
+              const finalBalance = group === "credit_card" ? -Math.abs(balance) : balance;
+              onSave(name.trim(), type, finalBalance);
             }
           }}
-          className="rounded-md bg-black px-4 py-2 text-sm text-white"
+          className="rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-2 text-sm font-medium text-white"
         >
           Create
         </button>
