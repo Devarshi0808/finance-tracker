@@ -164,20 +164,17 @@ export function AccountsManager() {
           title="Total in Banks"
           amount={groupTotals.bank}
           emoji="🏦"
-          color="from-emerald-500 to-teal-600"
         />
         <SummaryCard
-          title="Credit Card Debt"
+          title="Credit Cards"
           amount={groupTotals.credit_card}
           emoji="💳"
-          color="from-rose-500 to-pink-600"
           isDebt
         />
         <SummaryCard
           title="Friends Owe Me"
           amount={groupTotals.friends}
           emoji="🤝"
-          color="from-amber-500 to-orange-600"
         />
       </div>
 
@@ -206,26 +203,46 @@ function SummaryCard({
   title,
   amount,
   emoji,
-  color,
   isDebt = false,
 }: {
   title: string;
   amount: number;
   emoji: string;
-  color: string;
+  color?: string;
   isDebt?: boolean;
 }) {
-  const displayAmount = isDebt ? Math.abs(amount) : amount;
-  const prefix = isDebt && amount !== 0 ? "-" : "";
+  // For credit cards: balance is stored as NEGATIVE (debt)
+  // -$500 means you owe $500, +$50 means they owe you (overpaid)
+  const displayAmount = Math.abs(amount);
+  
+  // Dynamic color for credit cards based on debt status
+  let cardColor = "from-emerald-500 to-teal-600"; // default green for assets
+  let statusText = "";
+  
+  if (isDebt) {
+    if (amount < 0) {
+      // You OWE money → RED
+      cardColor = "from-rose-500 to-pink-600";
+      statusText = "owed";
+    } else if (amount > 0) {
+      // Card owes YOU (overpaid) → GREEN
+      cardColor = "from-emerald-500 to-teal-600";
+      statusText = "credit";
+    } else {
+      // Zero balance → neutral
+      cardColor = "from-gray-500 to-gray-600";
+    }
+  }
 
   return (
-    <div className={`rounded-2xl bg-gradient-to-br ${color} p-5 text-white shadow-lg`}>
+    <div className={`rounded-2xl bg-gradient-to-br ${cardColor} p-5 text-white shadow-lg`}>
       <div className="flex items-center gap-2 text-sm font-medium opacity-90">
         <span>{emoji}</span>
         <span>{title}</span>
       </div>
       <div className="mt-2 text-2xl font-bold">
-        {prefix}${centsToDollars(displayAmount)}
+        ${centsToDollars(displayAmount)}
+        {statusText && <span className="text-sm font-normal ml-1 opacity-80">{statusText}</span>}
       </div>
     </div>
   );
@@ -326,12 +343,13 @@ function AccountCard({
   onCancelEdit: () => void;
   onSaveBalance: (cents: number) => void;
 }) {
-  const [balanceInput, setBalanceInput] = useState(centsToDollars(account.initial_balance_cents));
+  const [balanceInput, setBalanceInput] = useState(centsToDollars(Math.abs(account.current_balance_cents)));
 
-  // For credit cards, show debt as positive (they owe the bank)
+  // Credit card balances are stored as NEGATIVE (debt)
+  // -$500 = you owe $500, -$400 = you owe $400 (less debt after payment)
+  // Display: Always show as positive "owed" amount
   const isDebt = group === "credit_card";
-  const displayBalance = isDebt ? Math.abs(account.current_balance_cents) : account.current_balance_cents;
-  const balancePrefix = isDebt && account.current_balance_cents !== 0 ? "-" : "";
+  const displayBalance = Math.abs(account.current_balance_cents);
 
   // Friendly type labels
   const typeLabels: Record<string, string> = {
@@ -353,7 +371,7 @@ function AccountCard({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Initial $</span>
+            <span className="text-sm text-muted-foreground">{isDebt ? "Owed $" : "Balance $"}</span>
             <input
               type="number"
               step="0.01"
@@ -388,15 +406,24 @@ function AccountCard({
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <div className="text-xs text-muted-foreground">Current Balance</div>
-            <div className={`text-lg font-bold ${isDebt ? "text-rose-600" : "text-emerald-600"}`}>
-              {balancePrefix}${centsToDollars(displayBalance)}
+            <div className="text-xs text-muted-foreground">
+              {isDebt 
+                ? (account.current_balance_cents < 0 ? "Amount Owed" : "Credit Balance") 
+                : "Current Balance"}
             </div>
-            {account.initial_balance_cents !== account.current_balance_cents && (
-              <div className="text-xs text-muted-foreground">
-                Initial: ${centsToDollars(Math.abs(account.initial_balance_cents))}
-              </div>
-            )}
+            <div className={`text-lg font-bold ${
+              isDebt 
+                ? (account.current_balance_cents < 0 ? "text-rose-600" : "text-emerald-600")
+                : "text-emerald-600"
+            }`}>
+              ${centsToDollars(displayBalance)}
+              {isDebt && account.current_balance_cents < 0 && (
+                <span className="text-xs font-normal ml-1 text-rose-400">owed</span>
+              )}
+              {isDebt && account.current_balance_cents > 0 && (
+                <span className="text-xs font-normal ml-1 text-emerald-400">credit</span>
+              )}
+            </div>
           </div>
           <button
             onClick={onStartEdit}
@@ -464,7 +491,7 @@ function AddAccountForm({
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium">
-            {group === "credit_card" ? "Current Balance Owed" : "Initial Balance"} ($)
+            {group === "credit_card" ? "Amount Owed" : "Balance"} ($)
           </label>
           <input
             type="number"

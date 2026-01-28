@@ -19,6 +19,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-950 dark:to-black">
+      {/* Safe area for mobile notch/status bar */}
+      <div className="h-[env(safe-area-inset-top)] bg-white/80 dark:bg-gray-950/80" />
       <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur-sm dark:bg-gray-950/80 dark:border-gray-800">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 sm:px-6 py-3 sm:py-4">
           <Link href="/app" className="text-lg sm:text-xl font-bold bg-gradient-to-r from-purple-600 to-purple-500 bg-clip-text text-transparent">
@@ -75,7 +77,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </nav>
         )}
       </header>
-      <main className="min-h-[calc(100vh-73px)]">{children}</main>
+      <main className="min-h-[calc(100vh-73px)] pb-[env(safe-area-inset-bottom)]">{children}</main>
     </div>
   );
 }

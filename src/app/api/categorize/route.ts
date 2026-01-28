@@ -19,14 +19,43 @@ const schema = z.object({
 });
 
 // Fallback when OpenAI is unavailable
-function ruleBased(_text: string) {
+function ruleBased(text: string) {
+  const t = text.toLowerCase();
+  
+  // Detect transfers (paying credit card bills, moving between accounts)
+  const isTransfer = 
+    (t.includes("paid") && (t.includes("credit card") || t.includes("card bill") || t.includes("amex") || t.includes("visa") || t.includes("mastercard"))) ||
+    (t.includes("transfer") && (t.includes("to") || t.includes("from"))) ||
+    (t.includes("moved") && (t.includes("savings") || t.includes("checking"))) ||
+    (t.includes("pay") && t.includes("bill") && (t.includes("card") || t.includes("amex") || t.includes("chase") || t.includes("discover")));
+  
+  // Detect income
+  const isIncome = 
+    t.includes("received") || 
+    t.includes("got paid") || 
+    t.includes("paycheck") || 
+    t.includes("salary") ||
+    t.includes("refund") ||
+    (t.includes("income") && !t.includes("expense"));
+  
+  let direction: "expense" | "income" | "transfer" = "expense";
+  let categoryHint = "Personal";
+  
+  if (isTransfer) {
+    direction = "transfer";
+    categoryHint = "Transfer";
+  } else if (isIncome) {
+    direction = "income";
+    categoryHint = "Income";
+  }
+  
   return {
-    direction: "expense" as const,
-    categoryHint: "Personal",
+    direction,
+    categoryHint,
     paymentModeName: undefined,
     friendWillReimburse: false,
     friendShareDollars: 0,
-    confidence: 0.2,
+    confidence: 0.3,
     used: "rules" as const,
   };
 }
@@ -67,16 +96,31 @@ export async function POST(req: Request) {
       messages: [
         {
           role: "system",
-          content: `Parse the transaction and return JSON with:
+          content: `You parse personal finance transactions. Return JSON only.
+
+DIRECTION RULES (important!):
+- "transfer" = Moving money between MY accounts (paying credit card bill, moving to savings, etc.)
+- "expense" = Spending money on goods/services (groceries, gas, coffee, etc.)
+- "income" = Receiving money (paycheck, refund, gift, etc.)
+
+EXAMPLES:
+- "paid credit card bill" → transfer (paying off MY credit card)
+- "paid amex from checking" → transfer
+- "moved $500 to savings" → transfer
+- "bought groceries" → expense
+- "uber ride $15" → expense
+- "got paid $2000" → income
+
+OUTPUT FORMAT:
 {
   "direction": "expense" | "income" | "transfer",
-  "descriptionSuggestion": "short description",
-  "categoryHint": "Transportation" | "Household" | "Personal" | "Recreational" | "Income" | "Savings",
-  "accountId": "uuid of account used",
-  "fromAccountId": "uuid of source account (only for transfers)",
-  "paymentModeName": "account name",
-  "friendWillReimburse": false,
-  "friendShareDollars": 0
+  "descriptionSuggestion": "2-4 word description",
+  "categoryHint": "Food" | "Transportation" | "Shopping" | "Bills" | "Personal" | "Income" | "Transfer",
+  "accountId": "destination account ID (for income/transfer) or payment account ID (for expense)",
+  "fromAccountId": "source account ID (only for transfers)",
+  "paymentModeName": "account name mentioned",
+  "friendWillReimburse": true/false,
+  "friendShareDollars": number or 0
 }
 ${accountsContext}`,
         },

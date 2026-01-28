@@ -59,7 +59,7 @@ export async function GET(req: Request) {
   const expenseAccount = accounts?.find((a) => a.account_name === "_Expenses");
   const expenseAccountId = expenseAccount?.id || null;
 
-  // Get transactions for the month to calculate spending
+  // Get NON-DELETED transactions for the month to calculate spending
   const monthStart = new Date(month);
   const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
 
@@ -67,6 +67,7 @@ export async function GET(req: Request) {
     .from("transactions")
     .select("id, category_id, amount_cents")
     .eq("user_id", user.id)
+    .is("deleted_at", null) // Only active transactions
     .gte("transaction_date", monthStart.toISOString().slice(0, 10))
     .lte("transaction_date", monthEnd.toISOString().slice(0, 10));
 

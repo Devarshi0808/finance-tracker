@@ -37,11 +37,13 @@ export async function calculateAccountBalances(
     return [];
   }
 
-  // Get all transaction IDs for the user
+  // Get all NON-DELETED transaction IDs for the user
+  // IMPORTANT: Deleted transactions should NOT affect balances
   const { data: transactions, error: txError } = await supabase
     .from("transactions")
     .select("id")
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .is("deleted_at", null); // Only include active (non-deleted) transactions
 
   if (txError) {
     console.error("Error fetching transactions:", txError);
@@ -75,7 +77,17 @@ export async function calculateAccountBalances(
     }));
   }
 
-  // Calculate balance for each account
+  // Calculate balance for each account using double-entry accounting:
+  // ================================================================
+  // Formula: balance = initial + sum(debits) - sum(credits)
+  //
+  // This works for ALL account types because:
+  // - Assets (checking, savings): stored as positive, debits add, credits subtract
+  // - Liabilities (credit cards): stored as NEGATIVE (debt), so:
+  //   - Credit card at -$500 (you owe $500)
+  //   - Payment DEBIT of $100: -$500 + $100 = -$400 (you now owe $400)
+  //   - Purchase CREDIT of $50: -$400 - $50 = -$450 (you now owe $450)
+  //
   return accounts.map((account) => {
     const accountEntries = entries.filter((e) => e.account_id === account.id);
 

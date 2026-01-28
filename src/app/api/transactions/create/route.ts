@@ -219,6 +219,13 @@ export async function POST(req: Request) {
     let fromAccountId = parsed.data.parsed.fromAccountId; // Source account (where money leaves from)
     let toAccountId = parsed.data.parsed.accountId; // Destination account (where money goes to)
 
+    // DEBUG LOGGING
+    console.log("=== TRANSFER DEBUG ===");
+    console.log("Input fromAccountId:", fromAccountId);
+    console.log("Input toAccountId (accountId):", toAccountId);
+    console.log("fromAccountName hint:", parsed.data.parsed.fromAccountName);
+    console.log("toAccountName hint:", parsed.data.parsed.toAccountName);
+
     // Auto-detect FROM account if not provided but account name is available
     if (!fromAccountId && parsed.data.parsed.fromAccountName && accounts) {
       const fromName = parsed.data.parsed.fromAccountName.toLowerCase().trim();
@@ -339,10 +346,32 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
+    // DEBUG: Log resolved accounts
+    console.log("Resolved FROM account:", fromAccount?.account_name, fromAccount?.account_type, "ID:", fromAccountId);
+    console.log("Resolved TO account:", toAccount?.account_name, toAccount?.account_type, "ID:", toAccountId);
+
+    // DOUBLE-ENTRY ACCOUNTING FOR TRANSFERS:
+    // ========================================
+    // Transfer $100 FROM Checking TO Credit Card (paying off debt):
+    //
+    // Credit Card (liability, stored as negative e.g., -$500):
+    //   DEBIT +$100 → balance goes from -$500 to -$400 (debt REDUCED)
+    //
+    // Checking (asset, stored as positive e.g., $1000):
+    //   CREDIT -$100 → balance goes from $1000 to $900 (money left)
+    //
+    // Balance formula for ALL accounts: initial + debits - credits
+    // This works because liabilities are stored as negative numbers.
     entries = [
-      { account_id: toAccountId, entry_type: "debit", amount_cents: amountCents },    // Money arrives at destination (reduces credit card debt)
-      { account_id: fromAccountId, entry_type: "credit", amount_cents: amountCents }, // Money leaves from source
+      { account_id: toAccountId, entry_type: "debit", amount_cents: amountCents },    // Destination: +debit
+      { account_id: fromAccountId, entry_type: "credit", amount_cents: amountCents }, // Source: -credit
     ];
+
+    // DEBUG: Log entries being created
+    console.log("ENTRIES TO CREATE:");
+    console.log(`  DEBIT  ${toAccount?.account_name} (TO)   +$${amountCents/100}`);
+    console.log(`  CREDIT ${fromAccount?.account_name} (FROM) -$${amountCents/100}`);
+    console.log("=== END TRANSFER DEBUG ===");
   } else {
     return NextResponse.json({ error: "invalid_direction" }, { status: 400 });
   }
@@ -386,9 +415,23 @@ export async function POST(req: Request) {
   });
 
   if (rpcError) {
+    console.error("RPC Error:", rpcError);
     const sanitized = sanitizeRPCError(rpcError, "create_transaction_with_entries");
     return NextResponse.json(sanitized, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, transactionId: rpcData });
+  // Include debug info in response for troubleshooting
+  const debugInfo = {
+    direction: parsed.data.parsed.direction,
+    amountCents,
+    entries: entries.map(e => ({
+      account_id: e.account_id,
+      account_name: accounts?.find(a => a.id === e.account_id)?.account_name,
+      entry_type: e.entry_type,
+      amount_cents: e.amount_cents,
+    })),
+  };
+  console.log("Transaction created successfully:", debugInfo);
+
+  return NextResponse.json({ ok: true, transactionId: rpcData, debug: debugInfo });
 }

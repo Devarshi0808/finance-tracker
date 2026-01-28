@@ -27,12 +27,14 @@ export async function GET() {
     return NextResponse.json({ balances: {} });
   }
 
-  // Get all transaction entries to calculate current balances (via transactions to respect RLS)
+  // Get all NON-DELETED transaction entries to calculate current balances
+  // IMPORTANT: Deleted transactions should NOT affect balances
   const accountIds = accounts.map((a) => a.id);
   const { data: transactions, error: transactionsError } = await supabase
     .from("transactions")
     .select("id")
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .is("deleted_at", null); // Only include active transactions
 
   if (transactionsError) {
     const sanitized = sanitizeDatabaseError(transactionsError, "get_transactions");

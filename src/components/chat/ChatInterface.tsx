@@ -95,14 +95,45 @@ export function ChatInterface() {
       const sug = suggestion?.suggestion ?? {};
 
       // AI provides all the smart parsing
-      const suggestedDirection = sug.direction || "expense";
+      let suggestedDirection = sug.direction || "expense";
       const suggestedPayment = sug.paymentModeName;
       const suggestedCategory = sug.categoryHint;
-      const suggestedAccountId = sug.accountId ?? null;
-      const suggestedFromAccountId = sug.fromAccountId ?? null;
+      let suggestedAccountId = sug.accountId ?? null;
+      let suggestedFromAccountId = sug.fromAccountId ?? null;
       const suggestedDescription = sug.descriptionSuggestion || "Transaction";
       const suggestedFriendShareDollars = typeof sug.friendShareDollars === "number" ? Math.max(0, sug.friendShareDollars) : 0;
       const suggestedFriendWillReimburse = Boolean(sug.friendWillReimburse);
+
+      // SAFEGUARD: Force "transfer" for credit card payments
+      // Patterns like "paid to amex", "paid credit card bill", etc.
+      const textLower = text.toLowerCase();
+      const isCreditCardPayment = 
+        (textLower.includes("paid") || textLower.includes("pay")) &&
+        (textLower.includes("credit card") || textLower.includes("card bill") || 
+         textLower.includes("amex") || textLower.includes("visa") || 
+         textLower.includes("mastercard") || textLower.includes("discover") ||
+         textLower.includes("apple card") || textLower.includes("chase freedom"));
+      
+      if (isCreditCardPayment && suggestedDirection === "expense") {
+        console.log("Overriding expense → transfer for credit card payment");
+        suggestedDirection = "transfer";
+        // Find the credit card account mentioned
+        const creditCardAccount = accounts.find(a => 
+          a.account_type === "credit_card" && 
+          textLower.includes(a.account_name.toLowerCase())
+        );
+        if (creditCardAccount) {
+          suggestedAccountId = creditCardAccount.id; // destination = credit card
+        }
+        // Find the bank account mentioned (from)
+        const bankAccount = accounts.find(a => 
+          (a.account_type === "checking" || a.account_type === "savings") &&
+          textLower.includes(a.account_name.toLowerCase().split(" ")[0]) // match first word like "chase"
+        );
+        if (bankAccount) {
+          suggestedFromAccountId = bankAccount.id; // source = bank
+        }
+      }
 
       const inferredFriend = inferFriendShare(text, validated.parsed.amountCents);
 
@@ -341,8 +372,8 @@ function ConfirmDrawer(props: {
   return (
     <div className="fixed inset-0 z-50 animate-in fade-in duration-200">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={props.onClose} />
-      <div className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-4xl animate-in slide-in-from-bottom-4 rounded-t-3xl border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-6 sm:p-8 shadow-2xl duration-300">
-        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-4">
+      <div className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-4xl max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom-4 rounded-t-3xl border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 sm:p-6 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl duration-300">
+        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-4 sticky top-0 bg-white dark:bg-gray-900 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-2 -mt-2 z-10">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#8B5CF6] text-xl text-white">
               ✓
@@ -631,23 +662,46 @@ function ConfirmDrawer(props: {
             className="group flex items-center justify-center gap-2 rounded-xl bg-[#8B5CF6] px-6 sm:px-8 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-[#7C3AED] active:scale-95"
             onClick={async () => {
               // Send transaction with idempotency key
+              const payload = {
+                parsed: draft,
+                idempotencyKey: idempotencyKey,
+              };
+              
+              // DEBUG: Log what we're sending
+              console.log("=== SENDING TO API ===");
+              console.log("Direction:", draft?.direction);
+              console.log("Amount:", draft?.amountCents ? draft.amountCents / 100 : 0);
+              console.log("accountId (TO):", draft?.accountId);
+              console.log("fromAccountId (FROM):", draft?.fromAccountId);
+              console.log("Full payload:", JSON.stringify(payload, null, 2));
+              
               try {
                 const res = await fetch("/api/transactions/create", {
                   method: "POST",
                   headers: { "content-type": "application/json" },
-                  body: JSON.stringify({
-                    parsed: draft,
-                    idempotencyKey: idempotencyKey,
-                  }),
+                  body: JSON.stringify(payload),
                 });
                 
+                const responseData = await res.json().catch(() => ({ error: "unknown" }));
+                
+                // DEBUG: Log response
+                console.log("=== API RESPONSE ===");
+                console.log("Status:", res.status);
+                console.log("Response:", JSON.stringify(responseData, null, 2));
+                
                 if (res.ok) {
+                  // Show debug info
+                  if (responseData.debug) {
+                    console.log("Entries created:", responseData.debug.entries);
+                    alert(`✅ Transaction saved!\n\nDebug info:\n${responseData.debug.entries.map((e: { account_name: string; entry_type: string; amount_cents: number }) => 
+                      `${e.entry_type.toUpperCase()} ${e.account_name}: $${e.amount_cents/100}`
+                    ).join('\n')}`);
+                  }
                   props.onClose();
                   return;
                 }
                 
                 // Handle specific error cases
-                const errorData = await res.json().catch(() => ({ error: "unknown" }));
                 const status = res.status;
                 
                 if (status === 503) {
@@ -656,7 +710,7 @@ function ConfirmDrawer(props: {
                   alert("🔒 Session expired. Please refresh the page and log in again.");
                 } else if (status === 400) {
                   // Validation error - show the specific message
-                  const message = errorData.message || errorData.error || "Invalid transaction data";
+                  const message = responseData.message || responseData.error || "Invalid transaction data";
                   alert(`❌ ${message}`);
                 } else {
                   alert("Failed to save transaction. Please try again.");

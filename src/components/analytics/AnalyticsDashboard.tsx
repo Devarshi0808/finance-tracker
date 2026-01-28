@@ -128,21 +128,43 @@ export function AnalyticsDashboard({ month: initialMonth }: { month: string }) {
       </div>
 
       {/* Account Balances */}
-      <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm">
+      <div className="mb-8 rounded-xl border bg-white p-6 shadow-sm dark:bg-gray-900 dark:border-gray-700">
         <h2 className="mb-4 text-xl font-semibold">Account Balances</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {data.accountSummaries.map((acc) => (
-            <div
-              key={acc.id}
-              className="rounded-lg border bg-gradient-to-br from-white to-gray-50 p-4 shadow-sm"
-            >
-              <div className="text-sm text-muted-foreground">{acc.name}</div>
-              <div className={`mt-1 text-2xl font-bold ${acc.balance_cents < 0 ? "text-red-600" : "text-green-600"}`}>
-                ${centsToDollars(acc.balance_cents)}
+          {data.accountSummaries.map((acc) => {
+            // Credit cards: negative = debt (red), positive = credit/overpaid (green)
+            const isCreditCard = acc.type === "credit_card";
+            const displayBalance = Math.abs(acc.balance_cents);
+            
+            let balanceColor = "text-green-600";
+            let statusText = "";
+            
+            if (isCreditCard) {
+              if (acc.balance_cents < 0) {
+                balanceColor = "text-red-600";
+                statusText = "owed";
+              } else if (acc.balance_cents > 0) {
+                balanceColor = "text-green-600";
+                statusText = "credit";
+              }
+            } else if (acc.balance_cents < 0) {
+              balanceColor = "text-red-600";
+            }
+            
+            return (
+              <div
+                key={acc.id}
+                className="rounded-lg border bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-900 p-4 shadow-sm dark:border-gray-700"
+              >
+                <div className="text-sm text-muted-foreground">{acc.name}</div>
+                <div className={`mt-1 text-2xl font-bold ${balanceColor}`}>
+                  ${centsToDollars(displayBalance)}
+                  {statusText && <span className={`text-sm font-normal ml-1 ${acc.balance_cents < 0 ? "text-red-400" : "text-green-400"}`}>{statusText}</span>}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground capitalize">{acc.type.replace("_", " ")}</div>
               </div>
-              <div className="mt-1 text-xs text-muted-foreground capitalize">{acc.type.replace("_", " ")}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

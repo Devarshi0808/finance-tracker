@@ -49,10 +49,12 @@ export async function GET(req: Request) {
   const monthStart = new Date(month);
   const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
 
+  // Only include NON-DELETED transactions
   const { data: transactions, error: txError } = await supabase
     .from("transactions")
     .select("id, transaction_date, amount_cents, category_id")
     .eq("user_id", user.id)
+    .is("deleted_at", null)
     .gte("transaction_date", monthStart.toISOString().slice(0, 10))
     .lte("transaction_date", monthEnd.toISOString().slice(0, 10));
 
@@ -80,11 +82,12 @@ export async function GET(req: Request) {
   const incomeAccountId = incomeAccount?.id || null;
   const expenseAccountId = expenseAccount?.id || null;
 
-  // Get ALL transaction entries (for both direction derivation and balance calculation)
+  // Get ALL NON-DELETED transaction entries (for both direction derivation and balance calculation)
   const { data: allTransactions } = await supabase
     .from("transactions")
     .select("id")
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .is("deleted_at", null);
 
   const allTransactionIds = allTransactions?.map((t) => t.id) ?? [];
   const { data: allEntries } =
