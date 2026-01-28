@@ -132,7 +132,7 @@ export function AnalyticsDashboard({ month: initialMonth }: { month: string }) {
         <h2 className="mb-4 text-xl font-semibold">Account Balances</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {data.accountSummaries.map((acc) => {
-            // Credit cards: negative = debt (red), positive = credit/overpaid (green)
+            // Credit cards: negative = debt (red), positive = credit/overpaid (green), zero = gray
             const isCreditCard = acc.type === "credit_card";
             const displayBalance = Math.abs(acc.balance_cents);
             
@@ -146,9 +146,14 @@ export function AnalyticsDashboard({ month: initialMonth }: { month: string }) {
               } else if (acc.balance_cents > 0) {
                 balanceColor = "text-green-600";
                 statusText = "credit";
+              } else {
+                // Zero balance - neutral gray
+                balanceColor = "text-gray-500";
               }
             } else if (acc.balance_cents < 0) {
               balanceColor = "text-red-600";
+            } else if (acc.balance_cents === 0) {
+              balanceColor = "text-gray-500";
             }
             
             return (

@@ -215,8 +215,8 @@ function SummaryCard({
   // -$500 means you owe $500, +$50 means they owe you (overpaid)
   const displayAmount = Math.abs(amount);
   
-  // Dynamic color for credit cards based on debt status
-  let cardColor = "from-emerald-500 to-teal-600"; // default green for assets
+  // Dynamic color based on balance status
+  let cardColor = "from-emerald-500 to-teal-600"; // default green for assets with balance
   let statusText = "";
   
   if (isDebt) {
@@ -229,9 +229,12 @@ function SummaryCard({
       cardColor = "from-emerald-500 to-teal-600";
       statusText = "credit";
     } else {
-      // Zero balance → neutral
+      // Zero balance → neutral gray
       cardColor = "from-gray-500 to-gray-600";
     }
+  } else if (amount === 0) {
+    // Zero balance for non-debt accounts → neutral gray
+    cardColor = "from-gray-500 to-gray-600";
   }
 
   return (
@@ -413,8 +416,8 @@ function AccountCard({
             </div>
             <div className={`text-lg font-bold ${
               isDebt 
-                ? (account.current_balance_cents < 0 ? "text-rose-600" : "text-emerald-600")
-                : "text-emerald-600"
+                ? (account.current_balance_cents < 0 ? "text-rose-600" : account.current_balance_cents > 0 ? "text-emerald-600" : "text-gray-500")
+                : (account.current_balance_cents === 0 ? "text-gray-500" : "text-emerald-600")
             }`}>
               ${centsToDollars(displayBalance)}
               {isDebt && account.current_balance_cents < 0 && (
