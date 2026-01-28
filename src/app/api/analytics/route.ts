@@ -158,9 +158,10 @@ export async function GET(req: Request) {
     friendsOweMe = accountBalances[friendsAccount.id] || 0;
   }
 
-  // Get account summaries (exclude internal accounts)
+  // Get account summaries (exclude internal account types - same filter as /api/accounts/list)
+  const INTERNAL_ACCOUNT_TYPES = ["income", "expense"];
   const accountSummaries = (accounts ?? [])
-    .filter((a) => !a.account_name.startsWith("_"))
+    .filter((a) => !INTERNAL_ACCOUNT_TYPES.includes(a.account_type))
     .map((a) => ({
       id: a.id,
       name: a.account_name,
