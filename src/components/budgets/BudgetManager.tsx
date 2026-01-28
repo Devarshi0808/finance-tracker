@@ -216,7 +216,7 @@ export default function BudgetManager() {
                 <div>
                   <h3 className="font-semibold">{budget.category_name}</h3>
                   <div className="mt-1 text-sm text-gray-500">
-                    ${centsToDollars(budget.spent_cents || 0)} of ${centsToDollars(budget.budget_amount_cents)} spent
+                    ${centsToDollars(budget.spent_cents ?? 0)} of ${centsToDollars(budget.budget_amount_cents)} spent
                   </div>
                 </div>
 
@@ -248,9 +248,9 @@ export default function BudgetManager() {
                 ) : (
                   <div className="flex items-center gap-3">
                     <div className="text-right">
-                      <div className={`text-lg font-bold ${(budget.remaining_cents || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        ${centsToDollars(Math.abs(budget.remaining_cents || 0))}
-                        {(budget.remaining_cents || 0) < 0 && " over"}
+                      <div className={`text-lg font-bold ${(budget.remaining_cents ?? 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        ${centsToDollars(Math.abs(budget.remaining_cents ?? 0))}
+                        {(budget.remaining_cents ?? 0) < 0 && " over"}
                       </div>
                       <div className="text-xs text-gray-400">remaining</div>
                     </div>
@@ -271,11 +271,11 @@ export default function BudgetManager() {
               <div className="mt-3">
                 <div className="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700">
                   <div
-                    className={`h-2 rounded-full transition-all ${getProgressColor(budget.percentage_used || 0)}`}
-                    style={{ width: `${Math.min(100, budget.percentage_used || 0)}%` }}
+                    className={`h-2 rounded-full transition-all ${getProgressColor(budget.percentage_used ?? 0)}`}
+                    style={{ width: `${Math.min(100, budget.percentage_used ?? 0)}%` }}
                   />
                 </div>
-                <div className="mt-1 text-xs text-gray-400 text-right">{budget.percentage_used || 0}%</div>
+                <div className="mt-1 text-xs text-gray-400 text-right">{budget.percentage_used ?? 0}%</div>
               </div>
             </div>
           ))}

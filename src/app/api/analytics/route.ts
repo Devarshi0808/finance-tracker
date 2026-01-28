@@ -141,7 +141,7 @@ export async function GET(req: Request) {
     } else if (direction === "expense") {
       totalExpenses += amount;
       if (category) {
-        categorySpending[category.name] = (categorySpending[category.name] || 0) + amount;
+        categorySpending[category.name] = (categorySpending[category.name] ?? 0) + amount;
         if (category.is_necessary) {
           necessaryExpenses += amount;
         } else {
@@ -155,7 +155,7 @@ export async function GET(req: Request) {
   // Find Friends Owe Me account
   const friendsAccount = accounts?.find((a) => a.account_name.toLowerCase().includes("friends owe me"));
   if (friendsAccount) {
-    friendsOweMe = accountBalances[friendsAccount.id] || 0;
+    friendsOweMe = accountBalances[friendsAccount.id] ?? 0;
   }
 
   // Get account summaries (exclude internal account types - same filter as /api/accounts/list)

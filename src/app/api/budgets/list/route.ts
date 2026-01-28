@@ -93,14 +93,14 @@ export async function GET(req: Request) {
   const categorySpending: Record<string, number> = {};
   for (const tx of transactions ?? []) {
     if (tx.category_id && expenseTransactionIds.has(tx.id)) {
-      categorySpending[tx.category_id] = (categorySpending[tx.category_id] || 0) + tx.amount_cents;
+      categorySpending[tx.category_id] = (categorySpending[tx.category_id] ?? 0) + tx.amount_cents;
     }
   }
 
   // Enrich budgets with spent data
   const enrichedBudgets: Budget[] = (budgets ?? []).map((b) => {
     const category = categoryMap.get(b.category_id);
-    const spent = categorySpending[b.category_id] || 0;
+    const spent = categorySpending[b.category_id] ?? 0;
     const remaining = b.budget_amount_cents - spent;
     const percentage = b.budget_amount_cents > 0 ? Math.round((spent / b.budget_amount_cents) * 100) : 0;
 
@@ -121,7 +121,7 @@ export async function GET(req: Request) {
 
   // Calculate totals
   const totalBudgeted = enrichedBudgets.reduce((sum, b) => sum + b.budget_amount_cents, 0);
-  const totalSpent = enrichedBudgets.reduce((sum, b) => sum + (b.spent_cents || 0), 0);
+  const totalSpent = enrichedBudgets.reduce((sum, b) => sum + (b.spent_cents ?? 0), 0);
   const totalRemaining = totalBudgeted - totalSpent;
 
   // Get categories without budgets for this month (for adding new budgets)
