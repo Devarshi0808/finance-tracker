@@ -166,7 +166,8 @@ export async function GET(req: Request) {
       id: a.id,
       name: a.account_name,
       type: a.account_type,
-      balance_cents: accountBalances[a.id] || a.initial_balance_cents,
+      // Use ?? instead of || so that 0 is treated as a valid balance (not falsy)
+      balance_cents: accountBalances[a.id] ?? a.initial_balance_cents,
     }));
 
   return NextResponse.json({
