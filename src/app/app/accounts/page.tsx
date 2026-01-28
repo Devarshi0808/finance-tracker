@@ -9,10 +9,5 @@ export default async function AccountsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: accounts } = await supabase
-    .from("accounts")
-    .select("id, account_name, account_type, initial_balance_cents, is_active")
-    .order("created_at", { ascending: true });
-
-  return <AccountsManager initialAccounts={accounts ?? []} />;
+  return <AccountsManager />;
 }

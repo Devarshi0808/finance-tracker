@@ -2,15 +2,20 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/apiAuth";
+import { checkRateLimit, getClientIdentifier, RateLimits } from "@/lib/rateLimit";
+import { sanitizeRPCError, ErrorResponses } from "@/lib/errorHandler";
+
+const MAX_TRANSACTION_AMOUNT = 10_000_000; // $100,000 max (prevent accidental large amounts)
 
 const schema = z.object({
   parsed: z.object({
     transactionDate: z.string().min(10),
-    description: z.string().min(1),
-    amountCents: z.number().int().positive(),
+    description: z.string().min(1).max(500),
+    amountCents: z.number().int().positive().max(MAX_TRANSACTION_AMOUNT),
     direction: z.enum(["expense", "income", "transfer"]),
     paymentModeName: z.string().optional(),
     categoryHint: z.string().optional(),
+    categoryId: z.string().uuid().optional(), // Direct category ID selection
     accountId: z.string().nullable().optional(),
     fromAccountId: z.string().nullable().optional(), // For transfers: source account
     fromAccountName: z.string().optional(), // For transfers: extracted account name hint
@@ -18,8 +23,9 @@ const schema = z.object({
     descriptionSuggestion: z.string().optional(),
     friendShareCents: z.number().int().nonnegative().optional(),
     friendWillReimburse: z.boolean().optional(),
+    isNecessary: z.boolean().optional(), // Whether this expense is necessary (separate from category)
   }),
-  idempotencyKey: z.string().optional(),
+  idempotencyKey: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/).optional(), // Validate format: alphanumeric, max 64 chars
 });
 
 function idempotencyKey() {
@@ -37,6 +43,20 @@ export async function POST(req: Request) {
     // Return 503 for timeout errors so client knows to retry
     const status = isTimeout ? 503 : 401;
     return NextResponse.json({ error: error || "Unauthorized", isTimeout }, { status });
+  }
+
+  // Rate limiting - prevent transaction spam
+  const clientId = getClientIdentifier(req);
+  const rateLimit = checkRateLimit(clientId, RateLimits.TRANSACTION_CREATE);
+
+  if (rateLimit.limited) {
+    return NextResponse.json(
+      ErrorResponses.RATE_LIMITED(rateLimit.retryAfter),
+      {
+        status: 429,
+        headers: { "Retry-After": String(rateLimit.retryAfter || 60) },
+      }
+    );
   }
 
   const supabase = await createSupabaseServerClient();
@@ -89,7 +109,6 @@ export async function POST(req: Request) {
   const incomeAccountId = getFirst("income");
   const expenseAccountId = getFirst("expense");
   const checkingAccountId = getFirst("checking");
-  const creditCardAccountId = getFirst("credit_card");
   const friendsAccountId = getFirst("friends_owe");
 
   if (!incomeAccountId || !expenseAccountId || !checkingAccountId) {
@@ -104,14 +123,43 @@ export async function POST(req: Request) {
       paymentAccountId = selectedAccount.id;
     }
   } else if (paymentModeName && accounts) {
-    const byName = accounts.find((a) => a.account_name.toLowerCase().includes(paymentModeName));
-    if (byName) {
-      paymentAccountId = byName.id;
-    } else if (paymentModeName.includes("credit") && creditCardAccountId) {
-      paymentAccountId = creditCardAccountId;
+    // Smart account matching for user's specific accounts
+    const pmLower = paymentModeName.toLowerCase();
+
+    // Try exact match first
+    let matched = accounts.find((a) =>
+      a.is_active !== false && a.account_name.toLowerCase() === pmLower
+    );
+
+    // Try partial match (e.g., "apple" matches "Apple Card")
+    if (!matched) {
+      matched = accounts.find((a) =>
+        a.is_active !== false && (
+          a.account_name.toLowerCase().includes(pmLower) ||
+          pmLower.includes(a.account_name.toLowerCase())
+        )
+      );
     }
-  } else if (creditCardAccountId && paymentModeName?.includes("credit")) {
-    paymentAccountId = creditCardAccountId;
+
+    // Specific credit card name matching
+    if (!matched && (pmLower.includes("chase") && pmLower.includes("freedom"))) {
+      matched = accounts.find((a) => a.account_name === "Chase Freedom");
+    }
+    if (!matched && pmLower.includes("amex")) {
+      matched = accounts.find((a) => a.account_name === "Amex Gold");
+    }
+    if (!matched && pmLower.includes("discover")) {
+      matched = accounts.find((a) => a.account_name === "Discover it");
+    }
+
+    // Fallback to first credit card if "credit" is mentioned
+    if (!matched && pmLower.includes("credit")) {
+      matched = accounts.find((a) => a.account_type === "credit_card" && a.is_active !== false);
+    }
+
+    if (matched) {
+      paymentAccountId = matched.id;
+    }
   }
 
   // Entries must balance. Convention used:
@@ -171,38 +219,83 @@ export async function POST(req: Request) {
     let fromAccountId = parsed.data.parsed.fromAccountId; // Source account (where money leaves from)
     let toAccountId = parsed.data.parsed.accountId; // Destination account (where money goes to)
 
-    // Auto-detect accounts if not provided but account names are available
+    // Auto-detect FROM account if not provided but account name is available
     if (!fromAccountId && parsed.data.parsed.fromAccountName && accounts) {
       const fromName = parsed.data.parsed.fromAccountName.toLowerCase().trim();
-      // Try exact match first, then partial match
-      const matched = accounts.find((a) => {
-        if (a.is_active === false) return false;
-        const accountName = a.account_name.toLowerCase();
-        // Exact match or contains match
-        return accountName === fromName || 
-               accountName.includes(fromName) || 
-               fromName.includes(accountName) ||
-               // Match account type keywords
-               (fromName.includes("checking") && a.account_type === "checking") ||
-               (fromName.includes("savings") && a.account_type === "savings");
-      });
+
+      // Try exact match first
+      let matched = accounts.find((a) =>
+        a.is_active !== false && a.account_name.toLowerCase() === fromName
+      );
+
+      // Try partial match
+      if (!matched) {
+        matched = accounts.find((a) => {
+          if (a.is_active === false) return false;
+          const accountName = a.account_name.toLowerCase();
+          return accountName.includes(fromName) || fromName.includes(accountName);
+        });
+      }
+
+      // Match specific bank names
+      if (!matched && fromName.includes("sofi")) {
+        // Prefer checking for transfers
+        matched = accounts.find((a) => a.account_name === "SoFi Checking") ||
+                 accounts.find((a) => a.account_name.includes("SoFi"));
+      }
+      if (!matched && fromName.includes("chase")) {
+        matched = accounts.find((a) => a.account_name === "Chase Checking") ||
+                 accounts.find((a) => a.account_name.includes("Chase") && a.account_type === "checking");
+      }
+
+      // Match account type keywords (prefer first match)
+      if (!matched && fromName.includes("checking")) {
+        matched = accounts.find((a) => a.account_type === "checking" && a.is_active !== false);
+      }
+      if (!matched && fromName.includes("savings")) {
+        matched = accounts.find((a) => a.account_type === "savings" && a.is_active !== false);
+      }
+
       if (matched) fromAccountId = matched.id;
     }
 
+    // Auto-detect TO account if not provided but account name is available
     if (!toAccountId && parsed.data.parsed.toAccountName && accounts) {
       const toName = parsed.data.parsed.toAccountName.toLowerCase().trim();
-      // Try exact match first, then partial match
-      const matched = accounts.find((a) => {
-        if (a.is_active === false) return false;
-        const accountName = a.account_name.toLowerCase();
-        // Exact match or contains match
-        return accountName === toName || 
-               accountName.includes(toName) || 
-               toName.includes(accountName) ||
-               // Match credit card keywords
-               ((toName.includes("credit") || toName.includes("card")) && 
-                (a.account_type === "credit_card" || accountName.includes("credit")));
-      });
+
+      // Try exact match first
+      let matched = accounts.find((a) =>
+        a.is_active !== false && a.account_name.toLowerCase() === toName
+      );
+
+      // Try partial match
+      if (!matched) {
+        matched = accounts.find((a) => {
+          if (a.is_active === false) return false;
+          const accountName = a.account_name.toLowerCase();
+          return accountName.includes(toName) || toName.includes(accountName);
+        });
+      }
+
+      // Match specific credit card names
+      if (!matched && toName.includes("chase") && toName.includes("freedom")) {
+        matched = accounts.find((a) => a.account_name === "Chase Freedom");
+      }
+      if (!matched && toName.includes("apple")) {
+        matched = accounts.find((a) => a.account_name === "Apple Card");
+      }
+      if (!matched && toName.includes("discover")) {
+        matched = accounts.find((a) => a.account_name === "Discover it");
+      }
+      if (!matched && toName.includes("amex")) {
+        matched = accounts.find((a) => a.account_name === "Amex Gold");
+      }
+
+      // Match credit card type if "credit" or "card" mentioned
+      if (!matched && (toName.includes("credit") || toName.includes("card"))) {
+        matched = accounts.find((a) => a.account_type === "credit_card" && a.is_active !== false);
+      }
+
       if (matched) toAccountId = matched.id;
     }
 
@@ -264,14 +357,17 @@ export async function POST(req: Request) {
         .maybeSingle()
     : { data: null as null | { id: string } };
 
-  const { data: category } = parsed.data.parsed.categoryHint
-    ? await supabase
-        .from("categories")
-        .select("id")
-        .ilike("name", parsed.data.parsed.categoryHint)
-        .limit(1)
-        .maybeSingle()
-    : { data: null as null | { id: string } };
+  // Use direct categoryId if provided, otherwise look up by name
+  let categoryId: string | null = parsed.data.parsed.categoryId ?? null;
+  if (!categoryId && parsed.data.parsed.categoryHint) {
+    const { data: category } = await supabase
+      .from("categories")
+      .select("id")
+      .ilike("name", parsed.data.parsed.categoryHint)
+      .limit(1)
+      .maybeSingle();
+    categoryId = category?.id ?? null;
+  }
 
   // Use client-provided key or generate one as fallback
   const finalIdempotencyKey = clientKey || idempotencyKey();
@@ -280,16 +376,18 @@ export async function POST(req: Request) {
     p_transaction_date: parsed.data.parsed.transactionDate,
     p_description: parsed.data.parsed.description,
     p_amount_cents: amountCents,
-    p_category_id: category?.id ?? null,
+    p_category_id: categoryId,
     p_payment_mode_id: paymentMode?.id ?? null,
     p_raw_input: null,
     p_notes: null,
     p_idempotency_key: finalIdempotencyKey,
     p_entries: entries,
+    p_is_necessary: parsed.data.parsed.isNecessary ?? null,
   });
 
   if (rpcError) {
-    return NextResponse.json({ error: "rpc_error", details: rpcError.message }, { status: 500 });
+    const sanitized = sanitizeRPCError(rpcError, "create_transaction_with_entries");
+    return NextResponse.json(sanitized, { status: 500 });
   }
 
   return NextResponse.json({ ok: true, transactionId: rpcData });

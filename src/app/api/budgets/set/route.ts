@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireAuth } from "@/lib/apiAuth";
+import { sanitizeDatabaseError } from "@/lib/errorHandler";
 
 const schema = z.object({
   categoryId: z.string().uuid(),
-  month: z.string().regex(/^\\d{4}-\\d{2}-01$/),
+  month: z.string().regex(/^\d{4}-\d{2}-01$/),
   budgetAmountCents: z.number().int().min(0),
 });
 
@@ -13,12 +15,13 @@ export async function POST(req: Request) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid_body" }, { status: 400 });
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const { user, error: authError, isTimeout } = await requireAuth();
+  if (authError || !user) {
+    const status = isTimeout ? 503 : 401;
+    return NextResponse.json({ error: authError || "Unauthorized", isTimeout }, { status });
+  }
 
+  const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("budgets")
     .upsert(
@@ -33,7 +36,10 @@ export async function POST(req: Request) {
     .select("id")
     .single();
 
-  if (error) return NextResponse.json({ error: "db_error", details: error.message }, { status: 500 });
+  if (error) {
+    const sanitized = sanitizeDatabaseError(error, "set_budget");
+    return NextResponse.json(sanitized, { status: 500 });
+  }
   return NextResponse.json({ ok: true, id: data.id });
 }
 

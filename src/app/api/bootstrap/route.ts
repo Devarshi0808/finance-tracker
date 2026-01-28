@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
+import { requireAuth } from "@/lib/apiAuth";
 
 // Creates default accounts/categories/payment modes for the logged-in user if none exist.
-export async function POST(req: Request) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+export async function POST() {
+  const { user, error, isTimeout } = await requireAuth();
+  if (error || !user) {
+    const status = isTimeout ? 503 : 401;
+    return NextResponse.json({ error: error || "Unauthorized", isTimeout }, { status });
+  }
 
   const service = createSupabaseServiceClient();
 
@@ -27,17 +27,27 @@ export async function POST(req: Request) {
     .eq("user_id", user.id);
 
   if (accountsFetchError) {
-    results.errors.push(`accounts_fetch_failed: ${accountsFetchError.message}`);
+    console.error("[bootstrap] Failed to fetch accounts:", accountsFetchError);
+    results.errors.push("accounts_fetch_failed");
   }
 
   const existingTypes = new Set((existingAccounts ?? []).map((a) => a.account_type));
   const existingNames = new Set((existingAccounts ?? []).map((a) => a.account_name));
 
   const requiredAccounts: Array<{ account_name: string; account_type: string }> = [
-    { account_name: "Checking", account_type: "checking" },
-    { account_name: "Savings", account_type: "savings" },
-    { account_name: "Credit Card", account_type: "credit_card" },
-    { account_name: "Emergency Fund", account_type: "emergency_fund" },
+    // User's specific bank accounts
+    { account_name: "SoFi Savings", account_type: "savings" },
+    { account_name: "SoFi Checking", account_type: "checking" },
+    { account_name: "Chase Savings", account_type: "savings" },
+    { account_name: "Chase Checking", account_type: "checking" },
+
+    // User's specific credit cards
+    { account_name: "Chase Freedom", account_type: "credit_card" },
+    { account_name: "Apple Card", account_type: "credit_card" },
+    { account_name: "Discover it", account_type: "credit_card" },
+    { account_name: "Amex Gold", account_type: "credit_card" },
+
+    // System accounts (required for double-entry bookkeeping)
     { account_name: "_Income", account_type: "income" },
     { account_name: "_Expenses", account_type: "expense" },
     { account_name: "Friends Owe Me", account_type: "friends_owe" },
@@ -58,7 +68,8 @@ export async function POST(req: Request) {
     );
     if (insertErr) {
       // Most common failure: schema not applied or enum missing values
-      results.errors.push(`accounts_insert_failed: ${insertErr.message}`);
+      console.error("[bootstrap] Failed to insert accounts:", insertErr);
+      results.errors.push("accounts_insert_failed");
     } else {
       results.accountsInserted = missingAccounts.length;
     }
@@ -81,7 +92,10 @@ export async function POST(req: Request) {
       { user_id: user.id, name: "Recreational", type: "expense", is_necessary: false },
       { user_id: user.id, name: "Savings", type: "savings", is_necessary: true },
     ]);
-    if (catErr) results.errors.push(`categories_insert_failed: ${catErr.message}`);
+    if (catErr) {
+      console.error("[bootstrap] Failed to insert categories:", catErr);
+      results.errors.push("categories_insert_failed");
+    }
     else results.categoriesInserted = 6;
   } else {
     results.categoriesInserted = 0;
@@ -100,7 +114,10 @@ export async function POST(req: Request) {
       { user_id: user.id, name: "credit card" },
       { user_id: user.id, name: "zelle" },
     ]);
-    if (pmErr) results.errors.push(`payment_modes_insert_failed: ${pmErr.message}`);
+    if (pmErr) {
+      console.error("[bootstrap] Failed to insert payment modes:", pmErr);
+      results.errors.push("payment_modes_insert_failed");
+    }
     else results.paymentModesInserted = 4;
   } else {
     results.paymentModesInserted = 0;

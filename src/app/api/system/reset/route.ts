@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/apiAuth";
+import { checkRateLimit, getClientIdentifier, RateLimits } from "@/lib/rateLimit";
+import { ErrorResponses, sanitizeDatabaseError } from "@/lib/errorHandler";
 
 const schema = z.object({
   confirmText: z.literal("RESET ALL DATA"), // User must type this exactly
@@ -13,9 +15,21 @@ const schema = z.object({
  * CAUTION: This is irreversible!
  */
 export async function POST(req: Request) {
-  const { user, error } = await requireAuth();
+  // Authentication
+  const { user, error, isTimeout } = await requireAuth();
   if (error || !user) {
-    return NextResponse.json({ error: error || "Unauthorized" }, { status: 401 });
+    const status = isTimeout ? 503 : 401;
+    return NextResponse.json({ error: error || "Unauthorized", isTimeout }, { status });
+  }
+
+  // Rate limiting
+  const clientId = getClientIdentifier(req);
+  const rateLimit = checkRateLimit(clientId, RateLimits.SYSTEM_RESET);
+  if (rateLimit.limited) {
+    return NextResponse.json(ErrorResponses.RATE_LIMITED(rateLimit.retryAfter), {
+      status: 429,
+      headers: { "Retry-After": String(rateLimit.retryAfter || 60) },
+    });
   }
 
   const body = await req.json().catch(() => null);
@@ -37,10 +51,7 @@ export async function POST(req: Request) {
     .eq("user_id", user.id);
 
   if (deleteError) {
-    return NextResponse.json(
-      { error: "reset_failed", details: deleteError.message },
-      { status: 500 }
-    );
+    return NextResponse.json(sanitizeDatabaseError(deleteError, "reset_transactions"), { status: 500 });
   }
 
   // Get count of transactions deleted (for confirmation)

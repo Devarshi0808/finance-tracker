@@ -50,7 +50,7 @@ const GROUP_CONFIG: Record<AccountGroup, { title: string; emoji: string; addLabe
   },
 };
 
-export function AccountsManager({ initialAccounts }: { initialAccounts: Account[] }) {
+export function AccountsManager() {
   const [accounts, setAccounts] = useState<AccountWithBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState<AccountGroup | null>(null);
@@ -225,7 +225,7 @@ function SummaryCard({
         <span>{title}</span>
       </div>
       <div className="mt-2 text-2xl font-bold">
-        {prefix}${centsToDollars(displayAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+        {prefix}${centsToDollars(displayAmount)}
       </div>
     </div>
   );
@@ -267,7 +267,7 @@ function AccountGroupSection({
         {canAdd && (
           <button
             onClick={onShowAddForm}
-            className="rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-2 text-sm font-medium text-white shadow-md transition-all hover:shadow-lg"
+            className="rounded-lg bg-purple-500 px-4 py-2 text-sm font-medium text-white shadow-md transition-all hover:bg-purple-600 hover:shadow-lg"
           >
             ➕ {config.addLabel}
           </button>
@@ -287,7 +287,7 @@ function AccountGroupSection({
         <div className="rounded-xl border-2 border-dashed border-gray-200 p-6 text-center text-muted-foreground">
           No {config.title.toLowerCase()} yet.{" "}
           {canAdd && (
-            <button onClick={onShowAddForm} className="text-blue-600 underline">
+            <button onClick={onShowAddForm} className="text-purple-600 underline">
               Add one
             </button>
           )}
@@ -344,7 +344,7 @@ function AccountCard({
 
   if (isEditing) {
     return (
-      <div className="rounded-xl border-2 border-blue-300 bg-gradient-to-br from-blue-50 to-white p-5 shadow-md">
+      <div className="rounded-xl border-2 border-purple-300 bg-gradient-to-br from-purple-50 to-white p-5 shadow-md">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="font-semibold">{account.account_name}</div>
@@ -358,12 +358,12 @@ function AccountCard({
               type="number"
               step="0.01"
               value={balanceInput}
-              onChange={(e) => setBalanceInput(Number(e.target.value))}
+              onChange={(e) => setBalanceInput(e.target.value)}
               className="w-28 rounded-md border px-3 py-2 text-right"
               placeholder="0.00"
             />
             <button
-              onClick={() => onSaveBalance(dollarsToCents(balanceInput))}
+              onClick={() => onSaveBalance(dollarsToCents(Number(balanceInput)))}
               className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white"
             >
               Save
@@ -390,11 +390,11 @@ function AccountCard({
           <div className="text-right">
             <div className="text-xs text-muted-foreground">Current Balance</div>
             <div className={`text-lg font-bold ${isDebt ? "text-rose-600" : "text-emerald-600"}`}>
-              {balancePrefix}${centsToDollars(displayBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              {balancePrefix}${centsToDollars(displayBalance)}
             </div>
             {account.initial_balance_cents !== account.current_balance_cents && (
               <div className="text-xs text-muted-foreground">
-                Initial: ${centsToDollars(Math.abs(account.initial_balance_cents)).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                Initial: ${centsToDollars(Math.abs(account.initial_balance_cents))}
               </div>
             )}
           </div>
@@ -435,7 +435,7 @@ function AddAccountForm({
       : [{ value: "credit_card", label: "Credit Card" }];
 
   return (
-    <div className="mb-4 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50 p-5">
+    <div className="mb-4 rounded-xl border-2 border-dashed border-purple-200 bg-purple-50/50 p-5">
       <h3 className="mb-4 font-semibold">Add New {group === "bank" ? "Bank Account" : "Credit Card"}</h3>
       <div className="grid gap-4 sm:grid-cols-3">
         <div>
@@ -488,7 +488,7 @@ function AddAccountForm({
               onSave(name.trim(), type, finalBalance);
             }
           }}
-          className="rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-2 text-sm font-medium text-white"
+          className="rounded-lg bg-purple-500 px-4 py-2 text-sm font-medium text-white hover:bg-purple-600"
         >
           Create
         </button>

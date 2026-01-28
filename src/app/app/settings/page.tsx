@@ -23,7 +23,7 @@ export default async function SettingsPage() {
       <div className="mb-8 grid gap-6 sm:grid-cols-2">
         <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="mb-3 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-xl">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-50 text-xl">
               💳
             </div>
             <h3 className="text-lg font-semibold text-gray-900">Credit Card Balances</h3>
@@ -60,7 +60,7 @@ export default async function SettingsPage() {
           Download a CSV backup of your transactions for external analysis or record-keeping.
         </p>
         <a
-          className="inline-flex items-center gap-2 rounded-lg border-2 border-[#0071e3] bg-white px-4 py-2 text-sm font-medium text-[#0071e3] transition-all hover:bg-blue-50 active:scale-95"
+          className="inline-flex items-center gap-2 rounded-lg border-2 border-purple-500 bg-white px-4 py-2 text-sm font-medium text-purple-600 transition-all hover:bg-purple-50 active:scale-95"
           href="/api/export/transactions"
         >
           <span>📄</span>

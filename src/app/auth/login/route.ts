@@ -2,12 +2,24 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getServerEnv } from "@/lib/env";
+import { checkRateLimit, getClientIdentifier, RateLimits } from "@/lib/rateLimit";
 
 const schema = z.object({
-  secret: z.string().min(1),
+  secret: z.string().min(1).max(100), // Prevent extremely long inputs
 });
 
 export async function POST(request: Request) {
+  // Rate limiting - prevent brute force attacks
+  const clientId = getClientIdentifier(request);
+  const rateLimit = checkRateLimit(clientId, RateLimits.LOGIN);
+
+  if (rateLimit.limited) {
+    console.warn(`[login] Rate limit exceeded for client: ${clientId}`);
+    return NextResponse.redirect(
+      new URL(`/login?error=rate_limited&next=${encodeURIComponent("/app")}`, request.url)
+    );
+  }
+
   const formData = await request.formData();
   const parsed = schema.safeParse({
     secret: formData.get("secret"),
@@ -28,6 +40,7 @@ export async function POST(request: Request) {
   }
 
   if (parsed.data.secret !== APP_SECRET_CODE) {
+    console.warn(`[login] Failed login attempt from client: ${clientId}`);
     return NextResponse.redirect(new URL(`/login?error=secret&next=${encodeURIComponent(next)}`, request.url));
   }
 
@@ -38,8 +51,11 @@ export async function POST(request: Request) {
   });
 
   if (error) {
+    console.error(`[login] Supabase auth error:`, error.message);
     return NextResponse.redirect(new URL(`/login?error=auth&next=${encodeURIComponent(next)}`, request.url));
   }
+
+  console.info(`[login] Successful login from client: ${clientId}`);
 
   return NextResponse.redirect(new URL(next, request.url));
 }

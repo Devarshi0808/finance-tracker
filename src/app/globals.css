@@ -7,6 +7,9 @@
   --muted-foreground: #a3a3a3;
   --border: #e5e5e5;
   --card: #ffffff;
+  --primary: #8B5CF6;
+  --primary-hover: #7C3AED;
+  --primary-light: #A78BFA;
 }
 
 @theme inline {
@@ -28,6 +31,9 @@
     --muted-foreground: #a3a3a3;
     --border: #262626;
     --card: #171717;
+    --primary: #A78BFA;
+    --primary-hover: #8B5CF6;
+    --primary-light: #C4B5FD;
   }
 }
 

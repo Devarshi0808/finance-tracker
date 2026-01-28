@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { z } from "zod";
 import { getServerEnv } from "@/lib/env";
+import { checkRateLimit, getClientIdentifier, RateLimits } from "@/lib/rateLimit";
+import { ErrorResponses } from "@/lib/errorHandler";
 
 const schema = z.object({
-  text: z.string().min(1),
+  text: z.string().min(1).max(1000),
   accounts: z
     .array(
       z.object({
@@ -16,33 +18,30 @@ const schema = z.object({
     .optional(),
 });
 
-function ruleBased(text: string) {
-  const t = text.toLowerCase();
-  const paymentModeName =
-    t.includes("credit") ? "credit card" : t.includes("debit") ? "debit card" : t.includes("cash") ? "cash" : undefined;
-
-  const categoryHint = t.match(/\b(rent|wifi|electric|electricity|gas|grocer|grocery|uber|lyft|train|bus)\b/)
-    ? "Household"
-    : t.match(/\b(movie|netflix|spotify|game|concert|bar|restaurant)\b/)
-      ? "Recreational"
-      : t.match(/\b(uber|lyft|metro|train|bus|gas)\b/)
-        ? "Transportation"
-        : t.match(/\b(paycheck|salary)\b/)
-          ? "Income"
-          : undefined;
-
-  const friendWillReimburse = /\bfriend\b/.test(t);
-
+// Fallback when OpenAI is unavailable
+function ruleBased(_text: string) {
   return {
-    categoryHint,
-    paymentModeName,
-    friendWillReimburse,
-    confidence: 0.35 as const,
+    direction: "expense" as const,
+    categoryHint: "Personal",
+    paymentModeName: undefined,
+    friendWillReimburse: false,
+    friendShareDollars: 0,
+    confidence: 0.2,
     used: "rules" as const,
   };
 }
 
 export async function POST(req: Request) {
+  // Rate limiting
+  const clientId = getClientIdentifier(req);
+  const rateLimit = checkRateLimit(clientId, RateLimits.CATEGORIZE);
+  if (rateLimit.limited) {
+    return NextResponse.json(ErrorResponses.RATE_LIMITED(rateLimit.retryAfter), {
+      status: 429,
+      headers: { "Retry-After": String(rateLimit.retryAfter || 60) },
+    });
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid_body" }, { status: 400 });
@@ -68,22 +67,18 @@ export async function POST(req: Request) {
       messages: [
         {
           role: "system",
-          content:
-            "You are a budgeting assistant for a personal finance app.\n" +
-            "Given the user's description of a transaction, extract:\n" +
-            "- categoryHint: short category name like \"Transportation\", \"Household\", \"Personal\", \"Recreational\", \"Income\".\n" +
-            "- paymentModeName: human-readable payment method or specific card/account name, e.g. \"Apple Card\", \"Chase Credit Card\", \"cash\".\n" +
-            "- accountId: the ID of the matching account from the available accounts list (if a match is found, otherwise null).\n" +
-            "  * For expenses: match the payment account (credit card, checking, etc.)\n" +
-            "  * For income: match the receiving account (checking, savings, etc.)\n" +
-            "  * For transfers: match the TO account (destination where money goes)\n" +
-            "- fromAccountId: for transfers only, the ID of the FROM account (source where money leaves).\n" +
-            "- descriptionSuggestion: a clean, short description (2-5 words) for the transaction, removing payment method mentions, friend clauses, and amounts. Examples: \"Groceries\", \"Dinner with friend\", \"Credit card payment\".\n" +
-            "- friendWillReimburse: true if some part is clearly for a friend and they will pay back.\n" +
-            "- friendShareDollars: how many dollars of the total are for the friend (0 if not clear).\n" +
-            "Match account names flexibly - \"Apple Card\" matches \"Apple Card\", \"credit card\" matches any credit card account, \"checking\" matches checking accounts.\n" +
-            "Respond with JSON only." +
-            accountsContext,
+          content: `Parse the transaction and return JSON with:
+{
+  "direction": "expense" | "income" | "transfer",
+  "descriptionSuggestion": "short description",
+  "categoryHint": "Transportation" | "Household" | "Personal" | "Recreational" | "Income" | "Savings",
+  "accountId": "uuid of account used",
+  "fromAccountId": "uuid of source account (only for transfers)",
+  "paymentModeName": "account name",
+  "friendWillReimburse": false,
+  "friendShareDollars": 0
+}
+${accountsContext}`,
         },
         { role: "user", content: parsed.data.text },
       ],
@@ -92,6 +87,7 @@ export async function POST(req: Request) {
 
     const content = resp.choices[0]?.message?.content ?? "{}";
     const json = JSON.parse(content) as {
+      direction?: "expense" | "income" | "transfer";
       categoryHint?: string;
       paymentModeName?: string;
       accountId?: string | null;
@@ -105,13 +101,19 @@ export async function POST(req: Request) {
     // Validate accountId exists in provided accounts
     const validAccountId =
       json.accountId && accounts.some((a) => a.id === json.accountId) ? json.accountId : null;
-    
+
     // Validate fromAccountId exists in provided accounts
     const validFromAccountId =
       json.fromAccountId && accounts.some((a) => a.id === json.fromAccountId) ? json.fromAccountId : null;
 
+    // Validate direction
+    const validDirection = ["expense", "income", "transfer"].includes(json.direction || "")
+      ? json.direction
+      : "expense";
+
     return NextResponse.json({
       suggestion: {
+        direction: validDirection,
         categoryHint: json.categoryHint,
         paymentModeName: json.paymentModeName,
         accountId: validAccountId,

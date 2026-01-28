@@ -12,7 +12,7 @@
 | Database | Supabase (PostgreSQL) | Hosted database with RLS |
 | Auth | Supabase Auth | Session-based authentication |
 | AI | OpenAI GPT-4o-mini | Transaction categorization |
-| Hosting | Vercel (planned) | Serverless deployment |
+| Hosting | Vercel | Serverless deployment |
 
 ### Key Design Decisions
 
@@ -20,6 +20,7 @@
 2. **Integer Cents Storage**: All amounts stored as integers (cents) to avoid floating-point issues
 3. **Chat-First Interface**: Natural language input for transactions
 4. **Secret Code Login**: Simplified auth for personal use (no signup flow)
+5. **Direction Derivation**: Transaction direction (income/expense/transfer) is derived from ledger entries, not stored
 
 ---
 
@@ -28,7 +29,7 @@
 ### Account Types
 ```
 checking      → Bank checking accounts
-savings       → Savings accounts  
+savings       → Savings accounts
 credit_card   → Credit cards (debt)
 emergency_fund→ Emergency savings
 income        → Internal: counterparty for income
@@ -58,6 +59,9 @@ friends_owe   → Track money friends owe you
 | amount_cents | bigint | Total amount (always positive) |
 | category_id | uuid | FK to categories |
 | payment_mode_id | uuid | FK to payment_modes |
+| merchant | text | (New) Merchant name |
+| status | text | (New) completed/pending/failed/recurring |
+| reference_id | text | (New) External reference |
 | idempotency_key | text | Prevents duplicate submissions |
 
 #### `transaction_entries`
@@ -68,6 +72,24 @@ friends_owe   → Track money friends owe you
 | account_id | uuid | Which account |
 | entry_type | enum | 'debit' or 'credit' |
 | amount_cents | bigint | Entry amount |
+
+#### `categories`
+| Column | Type | Description |
+|--------|------|-------------|
+| id | uuid | Primary key |
+| user_id | uuid | Owner |
+| name | text | Category name |
+| type | text | income/expense/savings |
+| is_necessary | boolean | For budget tracking |
+
+#### `budgets`
+| Column | Type | Description |
+|--------|------|-------------|
+| id | uuid | Primary key |
+| user_id | uuid | Owner |
+| category_id | uuid | FK to categories |
+| month | date | YYYY-MM-01 format |
+| budget_amount_cents | bigint | Monthly budget |
 
 ### Double-Entry Examples
 
@@ -111,7 +133,8 @@ Credit: Credit Card     $50  (you paid full amount)
 |----------|--------|-------------|
 | `/api/transactions/parse` | POST | Parse natural language input |
 | `/api/transactions/create` | POST | Create transaction with entries |
-| `/api/transactions/list` | GET | List recent transactions |
+| `/api/transactions/list` | GET | List with filters, pagination, direction |
+| `/api/transactions/update` | PATCH | Update transaction fields |
 | `/api/transactions/delete` | DELETE | Remove a transaction |
 
 ### Accounts
@@ -122,13 +145,21 @@ Credit: Credit Card     $50  (you paid full amount)
 | `/api/accounts/balances` | GET | Get current balances |
 | `/api/accounts/update-balance` | POST | Update initial balance |
 
+### Budgets
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/budgets/list` | GET | List budgets with spent calculations |
+| `/api/budgets/set` | POST | Create/update budget for category |
+
 ### Other
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/bootstrap` | POST | Create default accounts/categories |
 | `/api/categorize` | POST | AI categorization |
-| `/api/analytics` | GET | Dashboard data |
+| `/api/categories/list` | GET | List categories |
+| `/api/analytics` | GET | Dashboard data with direction derivation |
 | `/api/system/reset` | POST | Delete all user data |
+| `/api/export/transactions` | GET | Download CSV export |
 
 ---
 
@@ -160,57 +191,40 @@ Internal accounts (`_Income`, `_Expenses`) are hidden from users.
 - Receives account list for intelligent routing
 - Falls back to rule-based categorization if AI unavailable
 
-### 4. Idempotency Protection
-- Client generates unique key per transaction attempt
-- Server checks for existing transaction with same key
-- Prevents duplicate entries on retries/flaky connections
+### 4. Transaction Management
+- Rich transaction list with filters (date, category, direction, search)
+- Pagination support
+- Edit/delete transactions
+- Direction derived from ledger entries
+
+### 5. Budget Tracking
+- Monthly budget management with progress bars
+- Category-based budgets with spent calculations
+- Month navigation (prev/next)
+- Visual indicators for overspending
+
+### 6. Rate Limiting
+- In-memory rate limiting for API endpoints
+- Configurable limits per endpoint type
+- Protects against abuse
 
 ---
 
-## 🐛 Known Issues & Fixes
+## 🎨 Design Theme
 
-### Issue 1: Supabase Connection Timeouts
-**Symptom**: `ConnectTimeoutError`, `fetch failed` in logs
-**Cause**: Network latency to Supabase, especially on cold starts
-**Fix Applied**:
-- Added timeout detection in `apiAuth.ts`
-- Returns 503 (Service Unavailable) instead of 401 for timeouts
-- Client can distinguish between auth failure and network issues
-- UI shows user-friendly error messages for timeouts vs auth failures
+**Color Palette**: Black/white/grey with Purple-500 accent
 
-### Issue 2: Transfer Account Detection
-**Symptom**: 400 error `transfer_requires_both_accounts`
-**Cause**: Parser not extracting account names from natural language
-**Fix Applied**:
-- Improved `extractAccountNames()` in parse route
-- Added common credit card name matching (amex, chase, apple card, etc.)
-- Default from account to "checking" for card payments
-- UI now shows both account dropdowns for transfers
-
-### Issue 3: Internal Accounts Visible in UI
-**Symptom**: `_Income`, `_Expenses` showing on Accounts page
-**Fix Applied**:
-- `/api/accounts/list` now filters out `income` and `expense` types by default
-- Can still fetch all with `?includeInternal=true`
-- UI groups accounts into Bank/Cards/Friends categories
-
-### Issue 4: Friends Account Type
-**Symptom**: "Friends Owe Me" was grouped with Savings
-**Fix Applied**:
-- Added new `friends_owe` account type to enum
-- Bootstrap creates account with correct type
-- UI shows dedicated "Friends Owe Me" section
-
-### Issue 5: Poor Error Messages in UI
-**Symptom**: Generic "Failed to save transaction" for all errors
-**Fix Applied**:
-- ChatInterface now detects 503 (timeout), 401 (auth), 400 (validation)
-- Shows specific error messages for each case
-- ConfirmDrawer shows validation error details from API
+```css
+:root {
+  --primary: #8B5CF6;        /* Purple-500 */
+  --primary-hover: #7C3AED;  /* Purple-600 */
+  --primary-light: #A78BFA;  /* Purple-400 */
+}
+```
 
 ---
 
-## 🚀 Setup & Testing
+## 🚀 Setup & Deployment
 
 ### Prerequisites
 1. Node.js 18+
@@ -220,52 +234,50 @@ Internal accounts (`_Income`, `_Expenses`) are hidden from users.
    - Email confirmation DISABLED (for dev)
    - A user created in Auth dashboard
 
-### Environment Variables (`.env.local`)
+### Environment Variables
+Copy `.env.example` to `.env.local` and fill in:
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
-OPENAI_API_KEY=sk-...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+OPENAI_API_KEY=sk-your-openai-key
+APP_SECRET_CODE=your-login-secret
+APP_MASTER_EMAIL=your-email@example.com
+APP_MASTER_PASSWORD=your-supabase-auth-password
+```
 
-# Secret code login (your password to access the app)
-APP_SECRET_CODE=YourSecretCode123
-APP_MASTER_EMAIL=your-user@email.com
-APP_MASTER_PASSWORD=SupabaseAuthPassword
+### Database Migration
+Run in Supabase SQL Editor:
+```sql
+-- Add new transaction fields
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS merchant text;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS status text DEFAULT 'completed';
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reference_id text;
+
+-- Add status constraint
+DO $$ BEGIN
+  ALTER TABLE transactions ADD CONSTRAINT transactions_status_check
+    CHECK (status IN ('completed', 'pending', 'failed', 'recurring'));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Add indexes
+CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_transactions_merchant ON transactions(user_id, merchant) WHERE merchant IS NOT NULL;
 ```
 
 ### Running Locally
 ```bash
-cd FinanceTracker/finance-tracker
 npm install
 npm run dev
 ```
 
-### Testing Checklist
-
-#### ✅ Authentication
-- [ ] Go to `localhost:3000` → redirects to `/login`
-- [ ] Enter wrong secret code → shows error
-- [ ] Enter correct secret code → redirects to `/app`
-
-#### ✅ Transaction Entry
-- [ ] Type: "Spent $20 on lunch with credit card" → parses correctly
-- [ ] Confirm transaction → creates in database
-- [ ] Check `/app/transactions` → shows new entry
-
-#### ✅ Transfer
-- [ ] Type: "Paid $50 to credit card from checking"
-- [ ] Should detect as transfer, show both account dropdowns
-- [ ] Confirm → checking decreases, credit card debt decreases
-
-#### ✅ Accounts Page
-- [ ] Shows 3 sections: Bank, Credit Cards, Friends
-- [ ] Does NOT show `_Income` or `_Expenses`
-- [ ] Can add new account
-- [ ] Can edit initial balance
-
-#### ✅ Analytics
-- [ ] Visit `/app/analytics`
-- [ ] Shows charts and summary data
+### Vercel Deployment
+1. Push to GitHub
+2. Connect repo to Vercel
+3. Add environment variables in Vercel dashboard
+4. Deploy
 
 ---
 
@@ -280,6 +292,7 @@ finance-tracker/
 │   │   │   ├── page.tsx      # Chat interface
 │   │   │   ├── accounts/     # Account management
 │   │   │   ├── analytics/    # Charts & stats
+│   │   │   ├── budgets/      # Budget management
 │   │   │   ├── transactions/ # Transaction history
 │   │   │   └── settings/     # Export, reset
 │   │   ├── auth/             # Login/logout routes
@@ -288,38 +301,63 @@ finance-tracker/
 │   ├── components/
 │   │   ├── accounts/         # AccountsManager
 │   │   ├── analytics/        # AnalyticsDashboard
-│   │   └── chat/             # ChatInterface
+│   │   ├── budgets/          # BudgetManager
+│   │   ├── chat/             # ChatInterface
+│   │   ├── system/           # SystemReset
+│   │   └── transactions/     # TransactionList
 │   └── lib/
 │       ├── supabase/         # Client setup
 │       ├── apiAuth.ts        # Auth helper
+│       ├── errorHandler.ts   # Error sanitization
+│       ├── rateLimit.ts      # Rate limiting
 │       ├── money.ts          # Cents ↔ dollars
-│       ├── types.ts          # TypeScript types
-│       └── offlineQueue.ts   # Offline support
+│       └── types.ts          # TypeScript types
 ├── supabase/
 │   ├── schema.sql            # Database schema
-│   └── rpc.sql               # Stored procedures
-└── .env.local                # Environment variables
+│   ├── rpc.sql               # Stored procedures
+│   ├── setup_accounts.sql    # Account setup script
+│   └── migrations/           # SQL migrations
+├── .env.example              # Environment template
+└── CLAUDE.md                 # This documentation
 ```
 
 ---
 
-## 🔒 Security Notes
+## 🔒 Security
 
 1. **Row Level Security (RLS)**: All tables have policies ensuring users only see their own data
 2. **Service Role Key**: Only used server-side for bootstrap operations
 3. **Secret Code Auth**: Simple but effective for single-user personal app
 4. **No Sensitive Data in Client**: API keys never exposed to browser
+5. **Rate Limiting**: Protects API endpoints from abuse
+6. **Error Sanitization**: Database errors are sanitized before returning to client
 
 ---
 
-## 📈 Future Improvements
+## 🐛 Recent Fixes (January 2026)
 
-- [ ] Offline-first with background sync (currently disabled for testing)
-- [ ] Recurring transactions
-- [ ] Budget tracking with alerts
-- [ ] CSV import from bank statements
-- [ ] Mobile PWA with install prompt
-- [ ] Multi-currency support
+1. **Analytics Direction Bug**: Fixed - direction is now derived from transaction_entries
+2. **Balance Calculation**: Fixed - credit cards use inverted calculation (credits increase debt)
+3. **Dead Code Removal**: Removed offlineQueue.ts, signup routes
+4. **Theme Update**: Changed from blue (#0071e3) to purple (#8B5CF6) accent
+5. **Enhanced APIs**: Added filters, pagination, direction to transactions list
+6. **Budget Management**: Full CRUD with spent calculations and progress bars
+7. **Mobile-Responsive Design**: All pages now work on mobile with hamburger menu
+8. **Lint Cleanup**: Fixed all ESLint errors, removed unused imports/variables
+9. **Production Hardening**: Rate limiting, error sanitization, env validation
+
+---
+
+## ✅ Production Checklist
+
+- [x] Build passes (`npm run build`)
+- [x] No lint errors (`npm run lint`)
+- [x] All env vars documented in `.env.example`
+- [x] Rate limiting on all API endpoints
+- [x] Error sanitization (no sensitive data in responses)
+- [x] Secret code authentication working
+- [x] Mobile-responsive design
+- [x] Purple theme consistently applied
 
 ---
 

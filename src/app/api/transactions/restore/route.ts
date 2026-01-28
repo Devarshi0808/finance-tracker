@@ -4,14 +4,11 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/apiAuth";
 import { sanitizeRPCError } from "@/lib/errorHandler";
 
-const schema = z.object({ transactionId: z.string().uuid() });
+const schema = z.object({ id: z.string().uuid() });
 
-// Support both POST and DELETE methods
-async function handleDelete(req: Request) {
+export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
-  // Accept both { transactionId } (original) and { id } (from TransactionList)
-  const normalized = body?.id ? { transactionId: body.id } : body;
-  const parsed = schema.safeParse(normalized);
+  const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid_body" }, { status: 400 });
 
   const { user, error: authError, isTimeout } = await requireAuth();
@@ -21,16 +18,11 @@ async function handleDelete(req: Request) {
   }
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.rpc("delete_transaction", { p_transaction_id: parsed.data.transactionId });
+  const { error } = await supabase.rpc("restore_transaction", { p_transaction_id: parsed.data.id });
   if (error) {
-    const sanitized = sanitizeRPCError(error, "delete_transaction");
+    const sanitized = sanitizeRPCError(error, "restore_transaction");
     return NextResponse.json(sanitized, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
 }
-
-// Export both POST and DELETE handlers
-export const POST = handleDelete;
-export const DELETE = handleDelete;
-

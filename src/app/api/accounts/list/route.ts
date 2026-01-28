@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/apiAuth";
+import { sanitizeDatabaseError } from "@/lib/errorHandler";
 
 // Internal/system account types that should be hidden from UI by default
 const INTERNAL_ACCOUNT_TYPES = ["income", "expense"];
@@ -28,10 +29,11 @@ export async function GET(request: Request) {
     query = query.not("account_type", "in", `(${INTERNAL_ACCOUNT_TYPES.join(",")})`);
   }
 
-  const { data: accounts, error } = await query;
+  const { data: accounts, error: dbError } = await query;
 
-  if (error) {
-    return NextResponse.json({ error: "db_error", details: error.message }, { status: 500 });
+  if (dbError) {
+    const sanitized = sanitizeDatabaseError(dbError, "list_accounts");
+    return NextResponse.json(sanitized, { status: 500 });
   }
 
   return NextResponse.json({ accounts: accounts ?? [] });

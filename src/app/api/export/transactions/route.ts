@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireAuth } from "@/lib/apiAuth";
+import { checkRateLimit, getClientIdentifier, RateLimits } from "@/lib/rateLimit";
+import { ErrorResponses, sanitizeDatabaseError } from "@/lib/errorHandler";
 
 function csvEscape(v: unknown) {
   const s = String(v ?? "");
@@ -8,19 +11,34 @@ function csvEscape(v: unknown) {
 }
 
 export async function GET(req: Request) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Authentication
+  const { user, error, isTimeout } = await requireAuth();
+  if (error || !user) {
+    const status = isTimeout ? 503 : 401;
+    return NextResponse.json({ error: error || "Unauthorized", isTimeout }, { status });
+  }
 
-  const { data, error } = await supabase
+  // Rate limiting
+  const clientId = getClientIdentifier(req);
+  const rateLimit = checkRateLimit(clientId, RateLimits.EXPORT);
+  if (rateLimit.limited) {
+    return NextResponse.json(ErrorResponses.RATE_LIMITED(rateLimit.retryAfter), {
+      status: 429,
+      headers: { "Retry-After": String(rateLimit.retryAfter || 60) },
+    });
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error: dbError } = await supabase
     .from("transactions")
     .select("id, transaction_date, description, amount_cents, raw_input, notes, created_at")
     .order("transaction_date", { ascending: false })
     .limit(5000);
 
-  if (error) return NextResponse.json({ error: "db_error", details: error.message }, { status: 500 });
+  if (dbError) {
+    return NextResponse.json(sanitizeDatabaseError(dbError, "export_transactions"), { status: 500 });
+  }
 
   const header = ["id", "transaction_date", "description", "amount_cents", "raw_input", "notes", "created_at"];
   const lines = [header.join(",")];

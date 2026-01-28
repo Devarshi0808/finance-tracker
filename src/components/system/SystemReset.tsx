@@ -35,7 +35,7 @@ export function SystemReset() {
       } else {
         setResult({ ok: false, message: data.error || "Failed to reset system" });
       }
-    } catch (err) {
+    } catch {
       setResult({ ok: false, message: "Network error occurred" });
     } finally {
       setIsResetting(false);
@@ -63,13 +63,13 @@ export function SystemReset() {
           <ul className="list-disc list-inside space-y-1 text-sm text-orange-800">
             <li>Deploying to production for the first time</li>
             <li>You want to start fresh with current account balances</li>
-            <li>You've been testing and want to clear dummy data</li>
+            <li>You&apos;ve been testing and want to clear dummy data</li>
           </ul>
         </div>
 
-        <div className="mb-6 rounded-lg border border-blue-300 bg-blue-50 p-4">
-          <p className="text-sm font-medium text-blue-900 mb-2">💡 After reset, you should:</p>
-          <ol className="list-decimal list-inside space-y-1 text-sm text-blue-800">
+        <div className="mb-6 rounded-lg border border-purple-300 bg-purple-50 p-4">
+          <p className="text-sm font-medium text-purple-900 mb-2">💡 After reset, you should:</p>
+          <ol className="list-decimal list-inside space-y-1 text-sm text-purple-800">
             <li>Update your account balances to current amounts</li>
             <li>Add any outstanding credit card debt as negative balance</li>
             <li>Start tracking from today forward</li>

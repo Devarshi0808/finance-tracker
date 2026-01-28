@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { centsToDollars } from "@/lib/money";
-import Link from "next/link";
 
 type AnalyticsData = {
   month: string;
@@ -26,11 +25,7 @@ export function AnalyticsDashboard({ month: initialMonth }: { month: string }) {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadAnalytics();
-  }, [month]);
-
-  async function loadAnalytics() {
+  const loadAnalytics = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/analytics?month=${month}`);
@@ -42,7 +37,11 @@ export function AnalyticsDashboard({ month: initialMonth }: { month: string }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [month]);
+
+  useEffect(() => {
+    loadAnalytics();
+  }, [loadAnalytics]);
 
   if (loading || !data) {
     return (
@@ -52,25 +51,46 @@ export function AnalyticsDashboard({ month: initialMonth }: { month: string }) {
     );
   }
 
-  const monthDate = new Date(month);
-  const monthName = monthDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-
   const categoryEntries = Object.entries(data.categorySpending).sort((a, b) => b[1] - a[1]);
   const maxCategorySpending = Math.max(...categoryEntries.map(([, v]) => v), 1);
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-8">
-      <div className="mb-6 flex items-center justify-between">
+    <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 sm:py-8">
+      <div className="mb-6 flex flex-col gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Analytics</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold">Analytics</h1>
           <p className="mt-1 text-sm text-muted-foreground">Financial insights and spending patterns</p>
         </div>
-        <input
-          type="month"
-          value={month.slice(0, 7)}
-          onChange={(e) => setMonth(e.target.value + "-01")}
-          className="rounded-md border px-3 py-2"
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => {
+              const d = new Date(month);
+              d.setMonth(d.getMonth() - 1);
+              setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`);
+            }}
+            className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-800 dark:border-gray-600"
+            title="Previous month"
+          >
+            Previous
+          </button>
+          <input
+            type="month"
+            value={month.slice(0, 7)}
+            onChange={(e) => setMonth(e.target.value + "-01")}
+            className="rounded-md border px-3 sm:px-4 py-2 bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+          />
+          <button
+            onClick={() => {
+              const d = new Date(month);
+              d.setMonth(d.getMonth() + 1);
+              setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`);
+            }}
+            className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-800 dark:border-gray-600"
+            title="Next month"
+          >
+            Next
+          </button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -141,7 +161,7 @@ export function AnalyticsDashboard({ month: initialMonth }: { month: string }) {
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-gray-200">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all"
+                      className="h-full rounded-full bg-gradient-to-r from-purple-400 to-purple-600 transition-all"
                       style={{ width: `${percentage}%` }}
                     />
                   </div>
@@ -235,12 +255,12 @@ function NecessaryUnnecessaryChart({
     <div className="space-y-4">
       <div>
         <div className="mb-1 flex items-center justify-between text-sm">
-          <span className="font-medium text-blue-600">Necessary</span>
+          <span className="font-medium text-purple-600">Necessary</span>
           <span className="text-muted-foreground">${centsToDollars(necessary)}</span>
         </div>
         <div className="h-4 overflow-hidden rounded-full bg-gray-200">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-blue-400 to-blue-600 transition-all"
+            className="h-full rounded-full bg-gradient-to-r from-purple-400 to-purple-600 transition-all"
             style={{ width: `${necessaryPercent}%` }}
           />
         </div>

@@ -2,15 +2,17 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/apiAuth";
+import { sanitizeDatabaseError } from "@/lib/errorHandler";
 
 const schema = z.object({
   account_id: z.string().uuid(),
 });
 
 export async function POST(req: Request) {
-  const { user, error } = await requireAuth();
+  const { user, error, isTimeout } = await requireAuth();
   if (error || !user) {
-    return NextResponse.json({ error: error || "Unauthorized" }, { status: 401 });
+    const status = isTimeout ? 503 : 401;
+    return NextResponse.json({ error: error || "Unauthorized", isTimeout }, { status });
   }
 
   const body = await req.json().catch(() => null);
@@ -29,10 +31,8 @@ export async function POST(req: Request) {
     .limit(1);
 
   if (entriesError) {
-    return NextResponse.json(
-      { error: "check_failed", details: entriesError.message },
-      { status: 500 }
-    );
+    const sanitized = sanitizeDatabaseError(entriesError, "check_account_usage");
+    return NextResponse.json(sanitized, { status: 500 });
   }
 
   if (entries && entries.length > 0) {
@@ -53,10 +53,8 @@ export async function POST(req: Request) {
     .eq("user_id", user.id); // Ensure user owns this account
 
   if (deleteError) {
-    return NextResponse.json(
-      { error: "delete_failed", details: deleteError.message },
-      { status: 500 }
-    );
+    const sanitized = sanitizeDatabaseError(deleteError, "delete_account");
+    return NextResponse.json(sanitized, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
