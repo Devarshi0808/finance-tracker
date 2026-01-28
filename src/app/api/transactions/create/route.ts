@@ -88,11 +88,9 @@ export async function POST(req: Request) {
       method: "POST", 
       headers: req.headers 
     });
-    if (!bootstrapRes.ok) {
-      console.warn("Bootstrap call failed, but continuing with transaction creation");
-    }
-  } catch (err) {
-    console.warn("Bootstrap error (non-fatal):", err);
+    // Ignore bootstrap failures - it may have already run
+    void bootstrapRes;
+  } catch {
     // Continue anyway - bootstrap might have already run or will be handled by RPC
   }
 
@@ -219,13 +217,6 @@ export async function POST(req: Request) {
     let fromAccountId = parsed.data.parsed.fromAccountId; // Source account (where money leaves from)
     let toAccountId = parsed.data.parsed.accountId; // Destination account (where money goes to)
 
-    // DEBUG LOGGING
-    console.log("=== TRANSFER DEBUG ===");
-    console.log("Input fromAccountId:", fromAccountId);
-    console.log("Input toAccountId (accountId):", toAccountId);
-    console.log("fromAccountName hint:", parsed.data.parsed.fromAccountName);
-    console.log("toAccountName hint:", parsed.data.parsed.toAccountName);
-
     // Auto-detect FROM account if not provided but account name is available
     if (!fromAccountId && parsed.data.parsed.fromAccountName && accounts) {
       const fromName = parsed.data.parsed.fromAccountName.toLowerCase().trim();
@@ -346,10 +337,6 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
-    // DEBUG: Log resolved accounts
-    console.log("Resolved FROM account:", fromAccount?.account_name, fromAccount?.account_type, "ID:", fromAccountId);
-    console.log("Resolved TO account:", toAccount?.account_name, toAccount?.account_type, "ID:", toAccountId);
-
     // DOUBLE-ENTRY ACCOUNTING FOR TRANSFERS:
     // ========================================
     // Transfer $100 FROM Checking TO Credit Card (paying off debt):
@@ -366,12 +353,6 @@ export async function POST(req: Request) {
       { account_id: toAccountId, entry_type: "debit", amount_cents: amountCents },    // Destination: +debit
       { account_id: fromAccountId, entry_type: "credit", amount_cents: amountCents }, // Source: -credit
     ];
-
-    // DEBUG: Log entries being created
-    console.log("ENTRIES TO CREATE:");
-    console.log(`  DEBIT  ${toAccount?.account_name} (TO)   +$${amountCents/100}`);
-    console.log(`  CREDIT ${fromAccount?.account_name} (FROM) -$${amountCents/100}`);
-    console.log("=== END TRANSFER DEBUG ===");
   } else {
     return NextResponse.json({ error: "invalid_direction" }, { status: 400 });
   }
@@ -415,23 +396,9 @@ export async function POST(req: Request) {
   });
 
   if (rpcError) {
-    console.error("RPC Error:", rpcError);
     const sanitized = sanitizeRPCError(rpcError, "create_transaction_with_entries");
     return NextResponse.json(sanitized, { status: 500 });
   }
 
-  // Include debug info in response for troubleshooting
-  const debugInfo = {
-    direction: parsed.data.parsed.direction,
-    amountCents,
-    entries: entries.map(e => ({
-      account_id: e.account_id,
-      account_name: accounts?.find(a => a.id === e.account_id)?.account_name,
-      entry_type: e.entry_type,
-      amount_cents: e.amount_cents,
-    })),
-  };
-  console.log("Transaction created successfully:", debugInfo);
-
-  return NextResponse.json({ ok: true, transactionId: rpcData, debug: debugInfo });
+  return NextResponse.json({ ok: true, transactionId: rpcData });
 }

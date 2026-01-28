@@ -32,8 +32,8 @@ export function AnalyticsDashboard({ month: initialMonth }: { month: string }) {
       if (!res.ok) throw new Error("Failed to load analytics");
       const json = await res.json();
       setData(json);
-    } catch (err) {
-      console.error("Failed to load analytics", err);
+    } catch {
+      // Failed to load analytics
     } finally {
       setLoading(false);
     }

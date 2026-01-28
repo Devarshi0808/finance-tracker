@@ -14,7 +14,6 @@ export async function POST(request: Request) {
   const rateLimit = checkRateLimit(clientId, RateLimits.LOGIN);
 
   if (rateLimit.limited) {
-    console.warn(`[login] Rate limit exceeded for client: ${clientId}`);
     return NextResponse.redirect(
       new URL(`/login?error=rate_limited&next=${encodeURIComponent("/app")}`, request.url)
     );
@@ -40,7 +39,6 @@ export async function POST(request: Request) {
   }
 
   if (parsed.data.secret !== APP_SECRET_CODE) {
-    console.warn(`[login] Failed login attempt from client: ${clientId}`);
     return NextResponse.redirect(new URL(`/login?error=secret&next=${encodeURIComponent(next)}`, request.url));
   }
 
@@ -51,11 +49,8 @@ export async function POST(request: Request) {
   });
 
   if (error) {
-    console.error(`[login] Supabase auth error:`, error.message);
     return NextResponse.redirect(new URL(`/login?error=auth&next=${encodeURIComponent(next)}`, request.url));
   }
-
-  console.info(`[login] Successful login from client: ${clientId}`);
 
   return NextResponse.redirect(new URL(next, request.url));
 }

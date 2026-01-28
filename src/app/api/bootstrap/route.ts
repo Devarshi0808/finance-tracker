@@ -27,7 +27,6 @@ export async function POST() {
     .eq("user_id", user.id);
 
   if (accountsFetchError) {
-    console.error("[bootstrap] Failed to fetch accounts:", accountsFetchError);
     results.errors.push("accounts_fetch_failed");
   }
 
@@ -67,8 +66,6 @@ export async function POST() {
       })),
     );
     if (insertErr) {
-      // Most common failure: schema not applied or enum missing values
-      console.error("[bootstrap] Failed to insert accounts:", insertErr);
       results.errors.push("accounts_insert_failed");
     } else {
       results.accountsInserted = missingAccounts.length;
@@ -93,7 +90,6 @@ export async function POST() {
       { user_id: user.id, name: "Savings", type: "savings", is_necessary: true },
     ]);
     if (catErr) {
-      console.error("[bootstrap] Failed to insert categories:", catErr);
       results.errors.push("categories_insert_failed");
     }
     else results.categoriesInserted = 6;
@@ -115,7 +111,6 @@ export async function POST() {
       { user_id: user.id, name: "zelle" },
     ]);
     if (pmErr) {
-      console.error("[bootstrap] Failed to insert payment modes:", pmErr);
       results.errors.push("payment_modes_insert_failed");
     }
     else results.paymentModesInserted = 4;

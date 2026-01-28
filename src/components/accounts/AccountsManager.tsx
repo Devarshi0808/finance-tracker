@@ -79,8 +79,8 @@ export function AccountsManager() {
           current_balance_cents: balances[acc.id] ?? acc.initial_balance_cents,
         })),
       );
-    } catch (err) {
-      console.error("Failed to load accounts", err);
+    } catch {
+      // Failed to load accounts
     } finally {
       setLoading(false);
     }

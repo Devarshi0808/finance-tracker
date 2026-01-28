@@ -33,7 +33,6 @@ export async function calculateAccountBalances(
     .order("created_at", { ascending: true });
 
   if (accountsError || !accounts) {
-    console.error("Error fetching accounts:", accountsError);
     return [];
   }
 
@@ -46,7 +45,6 @@ export async function calculateAccountBalances(
     .is("deleted_at", null); // Only include active (non-deleted) transactions
 
   if (txError) {
-    console.error("Error fetching transactions:", txError);
     return accounts.map((acc) => ({
       ...acc,
       current_balance_cents: acc.initial_balance_cents,
@@ -70,7 +68,6 @@ export async function calculateAccountBalances(
     .in("transaction_id", txIds);
 
   if (entriesError || !entries) {
-    console.error("Error fetching entries:", entriesError);
     return accounts.map((acc) => ({
       ...acc,
       current_balance_cents: acc.initial_balance_cents,

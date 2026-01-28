@@ -30,11 +30,9 @@ export async function requireAuth(): Promise<AuthResult> {
       const isTimeout = errorMsg.includes("timeout") || errorMsg.includes("fetch failed") || errorMsg.includes("network");
       
       if (isTimeout) {
-        console.warn("Auth timeout - Supabase unreachable:", error.message);
         return { user: null, error: "Service temporarily unavailable. Please try again.", isTimeout: true };
       }
       
-      console.error("Auth error:", error.message);
       return { user: null, error: "Authentication failed" };
     }
 
@@ -49,11 +47,9 @@ export async function requireAuth(): Promise<AuthResult> {
     const isTimeout = errorMsg.includes("timeout") || errorMsg.includes("fetch failed") || errorMsg.includes("etimedout");
     
     if (isTimeout) {
-      console.warn("Auth timeout (exception):", err);
       return { user: null, error: "Service temporarily unavailable. Please try again.", isTimeout: true };
     }
     
-    console.error("Auth error:", err);
     return { user: null, error: "Authentication error" };
   }
 }

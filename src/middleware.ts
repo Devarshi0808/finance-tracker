@@ -9,7 +9,6 @@ export async function middleware(request: NextRequest) {
 
   // Check if env vars are set
   if (!supabaseUrl || !supabaseKey) {
-    console.error("Missing Supabase environment variables");
     // Allow request to continue - will fail gracefully in API routes
     return response;
   }
@@ -46,9 +45,8 @@ export async function middleware(request: NextRequest) {
   try {
     const { data: { user: authUser } } = await supabase.auth.getUser();
     user = authUser;
-  } catch (error) {
+  } catch {
     // Supabase unreachable - treat as unauthenticated
-    console.warn("Failed to get user in middleware:", error);
   }
 
   if (!user && !isPublicRoute) {

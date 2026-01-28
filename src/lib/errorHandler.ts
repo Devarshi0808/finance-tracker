@@ -20,9 +20,9 @@ export function sanitizeError(
   error: string;
   details?: string;
 } {
-  // Log full error details server-side for debugging
-  console.error(`[${context}] Error:`, error);
-
+  // Silence the unused parameter warning
+  void context;
+  
   // Handle Zod validation errors - these are safe to show to users
   if (preserveValidation && error && typeof error === "object" && "issues" in error) {
     const zodError = error as { issues: Array<{ message: string; path: Array<string | number> }> };
@@ -78,8 +78,8 @@ export function sanitizeDatabaseError(error: unknown, operation: string): {
   error: string;
   message?: string;
 } {
-  console.error(`[database_${operation}] Error:`, error);
-
+  void error; // Silence unused parameter
+  
   return {
     error: "database_error",
     message: `Failed to ${operation}`,
@@ -94,8 +94,9 @@ export function sanitizeRPCError(error: unknown, functionName: string): {
   error: string;
   message?: string;
 } {
-  console.error(`[rpc_${functionName}] Error:`, error);
-
+  void error; // Silence unused parameter
+  void functionName;
+  
   return {
     error: "operation_failed",
     message: "Transaction operation failed",

@@ -115,7 +115,6 @@ export function ChatInterface() {
          textLower.includes("apple card") || textLower.includes("chase freedom"));
       
       if (isCreditCardPayment && suggestedDirection === "expense") {
-        console.log("Overriding expense → transfer for credit card payment");
         suggestedDirection = "transfer";
         // Find the credit card account mentioned
         const creditCardAccount = accounts.find(a => 
@@ -661,19 +660,10 @@ function ConfirmDrawer(props: {
           <button
             className="group flex items-center justify-center gap-2 rounded-xl bg-[#8B5CF6] px-6 sm:px-8 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-[#7C3AED] active:scale-95"
             onClick={async () => {
-              // Send transaction with idempotency key
               const payload = {
                 parsed: draft,
                 idempotencyKey: idempotencyKey,
               };
-              
-              // DEBUG: Log what we're sending
-              console.log("=== SENDING TO API ===");
-              console.log("Direction:", draft?.direction);
-              console.log("Amount:", draft?.amountCents ? draft.amountCents / 100 : 0);
-              console.log("accountId (TO):", draft?.accountId);
-              console.log("fromAccountId (FROM):", draft?.fromAccountId);
-              console.log("Full payload:", JSON.stringify(payload, null, 2));
               
               try {
                 const res = await fetch("/api/transactions/create", {
@@ -684,19 +674,7 @@ function ConfirmDrawer(props: {
                 
                 const responseData = await res.json().catch(() => ({ error: "unknown" }));
                 
-                // DEBUG: Log response
-                console.log("=== API RESPONSE ===");
-                console.log("Status:", res.status);
-                console.log("Response:", JSON.stringify(responseData, null, 2));
-                
                 if (res.ok) {
-                  // Show debug info
-                  if (responseData.debug) {
-                    console.log("Entries created:", responseData.debug.entries);
-                    alert(`✅ Transaction saved!\n\nDebug info:\n${responseData.debug.entries.map((e: { account_name: string; entry_type: string; amount_cents: number }) => 
-                      `${e.entry_type.toUpperCase()} ${e.account_name}: $${e.amount_cents/100}`
-                    ).join('\n')}`);
-                  }
                   props.onClose();
                   return;
                 }
@@ -715,9 +693,8 @@ function ConfirmDrawer(props: {
                 } else {
                   alert("Failed to save transaction. Please try again.");
                 }
-              } catch (err) {
+              } catch {
                 // Network error
-                console.error("Transaction save error:", err);
                 alert("⚠️ Network error. Please check your connection and try again.");
               }
             }}
