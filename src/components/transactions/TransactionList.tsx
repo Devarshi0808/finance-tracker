@@ -8,13 +8,33 @@ type Filters = {
   from: string;
   to: string;
   category_id: string;
+  account_id: string;
   direction: TransactionDirection | "";
   search: string;
 };
 
+type Account = {
+  id: string;
+  name: string;
+  type: string;
+};
+
+type TransactionEntry = {
+  account_id: string;
+  account_name: string;
+  account_type: string;
+  entry_type: "debit" | "credit";
+  amount_cents: number;
+};
+
+type TransactionWithEntries = Transaction & {
+  entries?: TransactionEntry[];
+};
+
 export default function TransactionList() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactions, setTransactions] = useState<TransactionWithEntries[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -26,6 +46,7 @@ export default function TransactionList() {
     from: "",
     to: "",
     category_id: "",
+    account_id: "",
     direction: "",
     search: "",
   });
@@ -56,6 +77,7 @@ export default function TransactionList() {
     if (filters.from) params.set("from", filters.from);
     if (filters.to) params.set("to", filters.to);
     if (filters.category_id) params.set("category_id", filters.category_id);
+    if (filters.account_id) params.set("account_id", filters.account_id);
     if (filters.direction) params.set("direction", filters.direction);
     if (filters.search) params.set("search", filters.search);
     if (showDeleted !== "false") params.set("show_deleted", showDeleted);
@@ -69,6 +91,7 @@ export default function TransactionList() {
       }
       const data = await res.json();
       setTransactions(data.transactions ?? []);
+      setAccounts(data.accounts ?? []);
       setTotal(data.total ?? 0);
       setHasMore(data.hasMore ?? false);
     } catch (err) {
@@ -90,7 +113,7 @@ export default function TransactionList() {
 
   // Clear filters
   const clearFilters = () => {
-    setFilters({ from: "", to: "", category_id: "", direction: "", search: "" });
+    setFilters({ from: "", to: "", category_id: "", account_id: "", direction: "", search: "" });
     setPage(1);
   };
 
@@ -236,6 +259,18 @@ export default function TransactionList() {
             ))}
           </select>
           <select
+            value={filters.account_id}
+            onChange={(e) => updateFilter("account_id", e.target.value)}
+            className="rounded-md border px-2 sm:px-3 py-2 text-sm dark:bg-gray-800 dark:border-gray-600"
+          >
+            <option value="">All Accounts</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <select
             value={filters.direction}
             onChange={(e) => updateFilter("direction", e.target.value as TransactionDirection | "")}
             className="rounded-md border px-2 sm:px-3 py-2 text-sm dark:bg-gray-800 dark:border-gray-600"
@@ -342,6 +377,26 @@ export default function TransactionList() {
                             </>
                           )}
                         </div>
+                        {/* Account entries */}
+                        {tx.entries && tx.entries.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {tx.entries.map((entry, idx) => (
+                              <span
+                                key={idx}
+                                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs ${
+                                  entry.entry_type === "debit"
+                                    ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
+                                    : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
+                                }`}
+                              >
+                                <span className="font-medium">{entry.account_name}</span>
+                                <span className="opacity-70">
+                                  {entry.entry_type === "debit" ? "+" : "-"}${centsToDollars(entry.amount_cents)}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className={`text-lg font-bold whitespace-nowrap ${getDirectionColor(tx.direction)}`}>
                         {tx.direction === "income" ? "+" : tx.direction === "expense" ? "-" : ""}$

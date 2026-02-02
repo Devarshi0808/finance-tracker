@@ -127,6 +127,7 @@ export async function GET(req: Request) {
   const categorySpending: Record<string, number> = {};
   let necessaryExpenses = 0;
   let unnecessaryExpenses = 0;
+  let uncategorizedExpenses = 0;
   let friendsOweMe = 0;
 
   for (const tx of transactions ?? []) {
@@ -147,6 +148,10 @@ export async function GET(req: Request) {
         } else {
           unnecessaryExpenses += amount;
         }
+      } else {
+        // Track uncategorized expenses separately (treat as unnecessary by default)
+        categorySpending["Uncategorized"] = (categorySpending["Uncategorized"] ?? 0) + amount;
+        uncategorizedExpenses += amount;
       }
     }
     // transfers don't affect income/expense totals
@@ -178,6 +183,7 @@ export async function GET(req: Request) {
     categorySpending,
     necessaryExpenses,
     unnecessaryExpenses,
+    uncategorizedExpenses,
     friendsOweMe,
     accountSummaries,
   });

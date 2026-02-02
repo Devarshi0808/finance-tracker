@@ -139,19 +139,43 @@ export async function GET(req: Request) {
     return NextResponse.json(sanitizeDatabaseError(txError, "list_transactions"), { status: 500 });
   }
 
-  // Get transaction entries for direction derivation and account filtering
+  // Get transaction entries for direction derivation, account filtering, and display
   const transactionIds = transactions?.map((t) => t.id) ?? [];
   const { data: entries } =
     transactionIds.length > 0
       ? await supabase
           .from("transaction_entries")
-          .select("transaction_id, account_id, entry_type")
+          .select("transaction_id, account_id, entry_type, amount_cents")
           .in("transaction_id", transactionIds)
       : { data: [] };
 
-  // Enrich transactions with derived data
-  let enrichedTransactions: Transaction[] = (transactions ?? []).map((tx) => {
+  // Create account map for quick lookup
+  const accountMap = new Map(
+    accountsResult.data?.map((a) => [a.id, { name: a.account_name, type: a.account_type }]) ?? []
+  );
+
+  // Internal account types to filter out from display
+  const INTERNAL_ACCOUNT_TYPES = ["income", "expense"];
+
+  // Enrich transactions with derived data and entry details
+  let enrichedTransactions = (transactions ?? []).map((tx) => {
     const derivedDirection = deriveDirection(tx.id, entries ?? [], incomeAccountId, expenseAccountId);
+
+    // Get entries for this transaction with account names (excluding internal accounts)
+    const txEntries = (entries ?? [])
+      .filter((e) => e.transaction_id === tx.id)
+      .map((e) => {
+        const account = accountMap.get(e.account_id);
+        return {
+          account_id: e.account_id,
+          account_name: account?.name ?? "Unknown",
+          account_type: account?.type ?? "unknown",
+          entry_type: e.entry_type as "debit" | "credit",
+          amount_cents: e.amount_cents,
+        };
+      })
+      .filter((e) => !INTERNAL_ACCOUNT_TYPES.includes(e.account_type)); // Hide internal accounts
+
     return {
       ...tx,
       user_id: user.id,
@@ -160,7 +184,8 @@ export async function GET(req: Request) {
       payment_mode_name: tx.payment_mode_id ? paymentModeMap.get(tx.payment_mode_id) : undefined,
       status: "completed" as const,
       updated_at: tx.created_at,
-    } as Transaction;
+      entries: txEntries,
+    };
   });
 
   // Filter by direction if specified (post-query since direction is derived)
@@ -176,14 +201,34 @@ export async function GET(req: Request) {
     enrichedTransactions = enrichedTransactions.filter((tx) => txIdsWithAccount.has(tx.id));
   }
 
-  const total = totalCount ?? 0;
+  // Build accounts list for filtering (exclude internal accounts)
+  const accounts = (accountsResult.data ?? [])
+    .filter((a) => !INTERNAL_ACCOUNT_TYPES.includes(a.account_type))
+    .map((a) => ({
+      id: a.id,
+      name: a.account_name,
+      type: a.account_type,
+    }));
+
+  // Calculate correct total based on post-filter count when using direction or account_id filters
+  // These filters are applied post-query, so totalCount doesn't reflect them
+  const isPostFiltered = !!(direction || account_id);
+  const effectiveTotal = isPostFiltered
+    ? enrichedTransactions.length + offset // Approximate - we don't know true total without full scan
+    : (totalCount ?? 0);
+
+  // For post-filtered results, hasMore is based on whether we got a full page
+  const hasMore = isPostFiltered
+    ? enrichedTransactions.length === pageSize
+    : offset + enrichedTransactions.length < (totalCount ?? 0);
 
   return NextResponse.json({
     transactions: enrichedTransactions,
-    total,
+    accounts,
+    total: effectiveTotal,
     page,
     pageSize,
-    hasMore: offset + enrichedTransactions.length < total,
+    hasMore,
   });
 }
 
