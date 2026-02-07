@@ -31,7 +31,11 @@ type TransactionWithEntries = Transaction & {
   entries?: TransactionEntry[];
 };
 
-export default function TransactionList() {
+type TransactionListProps = {
+  initialAccountId?: string;
+};
+
+export default function TransactionList({ initialAccountId = "" }: TransactionListProps) {
   const [transactions, setTransactions] = useState<TransactionWithEntries[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -46,7 +50,7 @@ export default function TransactionList() {
     from: "",
     to: "",
     category_id: "",
-    account_id: "",
+    account_id: initialAccountId,
     direction: "",
     search: "",
   });
@@ -222,8 +226,31 @@ export default function TransactionList() {
 
   const hasActiveFilters = Object.values(filters).some((v) => v !== "");
 
+  // Find the active account name for display
+  const activeAccountName = filters.account_id
+    ? accounts.find((a) => a.id === filters.account_id)?.name
+    : null;
+
   return (
     <div className="space-y-4">
+      {/* Account Filter Banner */}
+      {activeAccountName && (
+        <div className="flex items-center justify-between rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-purple-600 dark:text-purple-400">📊</span>
+            <span className="text-sm font-medium text-purple-700 dark:text-purple-300">
+              Showing transactions for: <span className="font-semibold">{activeAccountName}</span>
+            </span>
+          </div>
+          <button
+            onClick={() => updateFilter("account_id", "")}
+            className="text-sm text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-200 underline"
+          >
+            Show all accounts
+          </button>
+        </div>
+      )}
+
       {/* Filter Bar */}
       <div className="rounded-lg border bg-white p-3 sm:p-4 shadow-sm dark:bg-gray-900 dark:border-gray-700">
         <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3">

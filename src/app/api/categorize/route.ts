@@ -21,26 +21,36 @@ const schema = z.object({
 // Fallback when OpenAI is unavailable
 function ruleBased(text: string) {
   const t = text.toLowerCase();
-  
+
+  // Detect friend repayment (friend paying you back - NOT income!)
+  const isFriendRepayment =
+    (t.includes("friend") && (t.includes("paid") || t.includes("sent") || t.includes("venmo") || t.includes("zelle") || t.includes("payback") || t.includes("pay back") || t.includes("paid back") || t.includes("repaid"))) ||
+    (t.includes("received") && t.includes("friend")) ||
+    (t.includes("got") && t.includes("from") && t.includes("friend")) ||
+    t.includes("friend reimbursed") ||
+    t.includes("friend paid back");
+
   // Detect transfers (paying credit card bills, moving between accounts)
-  const isTransfer = 
+  const isTransfer =
+    isFriendRepayment ||
     (t.includes("paid") && (t.includes("credit card") || t.includes("card bill") || t.includes("amex") || t.includes("visa") || t.includes("mastercard"))) ||
     (t.includes("transfer") && (t.includes("to") || t.includes("from"))) ||
     (t.includes("moved") && (t.includes("savings") || t.includes("checking"))) ||
     (t.includes("pay") && t.includes("bill") && (t.includes("card") || t.includes("amex") || t.includes("chase") || t.includes("discover")));
-  
-  // Detect income
-  const isIncome = 
-    t.includes("received") || 
-    t.includes("got paid") || 
-    t.includes("paycheck") || 
-    t.includes("salary") ||
-    t.includes("refund") ||
-    (t.includes("income") && !t.includes("expense"));
-  
+
+  // Detect income (but NOT friend repayments)
+  const isIncome =
+    !isFriendRepayment && (
+      t.includes("got paid") ||
+      t.includes("paycheck") ||
+      t.includes("salary") ||
+      t.includes("refund") ||
+      (t.includes("income") && !t.includes("expense"))
+    );
+
   let direction: "expense" | "income" | "transfer" = "expense";
   let categoryHint = "Personal";
-  
+
   if (isTransfer) {
     direction = "transfer";
     categoryHint = "Transfer";
@@ -48,13 +58,14 @@ function ruleBased(text: string) {
     direction = "income";
     categoryHint = "Income";
   }
-  
+
   return {
     direction,
     categoryHint,
     paymentModeName: undefined,
     friendWillReimburse: false,
     friendShareDollars: 0,
+    isFriendRepayment,
     confidence: 0.3,
     used: "rules" as const,
   };
@@ -99,17 +110,25 @@ export async function POST(req: Request) {
           content: `You parse personal finance transactions. Return JSON only.
 
 DIRECTION RULES (important!):
-- "transfer" = Moving money between MY accounts (paying credit card bill, moving to savings, etc.)
+- "transfer" = Moving money between MY accounts (paying credit card bill, moving to savings, friend paying me back, etc.)
 - "expense" = Spending money on goods/services (groceries, gas, coffee, etc.)
-- "income" = Receiving money (paycheck, refund, gift, etc.)
+- "income" = Receiving money from external sources (paycheck, salary, refund, gift from non-friend, etc.)
+
+CRITICAL: Friend repayments are TRANSFERS, not income!
+When a friend pays you back (via Zelle, Venmo, cash, etc.), it's settling a debt - NOT income.
+Set isFriendRepayment=true and direction="transfer" for these cases.
 
 EXAMPLES:
-- "paid credit card bill" → transfer (paying off MY credit card)
+- "paid credit card bill" → transfer
 - "paid amex from checking" → transfer
 - "moved $500 to savings" → transfer
+- "friend sent $25 via zelle" → transfer, isFriendRepayment=true
+- "received $50 from friend" → transfer, isFriendRepayment=true
+- "friend paid back for dinner" → transfer, isFriendRepayment=true
 - "bought groceries" → expense
 - "uber ride $15" → expense
-- "got paid $2000" → income
+- "got paid $2000" → income (salary/paycheck)
+- "tax refund $500" → income
 
 OUTPUT FORMAT:
 {
@@ -120,7 +139,8 @@ OUTPUT FORMAT:
   "fromAccountId": "source account ID (only for transfers)",
   "paymentModeName": "account name mentioned",
   "friendWillReimburse": true/false,
-  "friendShareDollars": number or 0
+  "friendShareDollars": number or 0,
+  "isFriendRepayment": true/false (true when friend is paying you back)
 }
 ${accountsContext}`,
         },
@@ -140,6 +160,7 @@ ${accountsContext}`,
       confidence?: number;
       friendWillReimburse?: boolean;
       friendShareDollars?: number;
+      isFriendRepayment?: boolean;
     };
 
     // Validate accountId exists in provided accounts
@@ -168,6 +189,7 @@ ${accountsContext}`,
           typeof json.friendShareDollars === "number" && json.friendShareDollars > 0
             ? json.friendShareDollars
             : 0,
+        isFriendRepayment: Boolean(json.isFriendRepayment),
         confidence: typeof json.confidence === "number" ? json.confidence : 0.6,
         used: "openai" as const,
       },

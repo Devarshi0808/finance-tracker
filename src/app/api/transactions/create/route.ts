@@ -23,6 +23,7 @@ const schema = z.object({
     descriptionSuggestion: z.string().optional(),
     friendShareCents: z.number().int().nonnegative().optional(),
     friendWillReimburse: z.boolean().optional(),
+    isFriendRepayment: z.boolean().optional(), // Friend paying you back (NOT income!)
     isNecessary: z.boolean().optional(), // Whether this expense is necessary (separate from category)
   }),
   idempotencyKey: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/).optional(), // Validate format: alphanumeric, max 64 chars
@@ -211,6 +212,44 @@ export async function POST(req: Request) {
     entries = [
       { account_id: receivingAccountId, entry_type: "debit", amount_cents: amountCents },
       { account_id: incomeAccountId, entry_type: "credit", amount_cents: amountCents },
+    ];
+  } else if (parsed.data.parsed.isFriendRepayment) {
+    // Friend repayment: friend pays you back, settles debt in "Friends Owe Me" account
+    // This is NOT income - it's a transfer from Friends Owe Me to your receiving account
+    // Debit: Checking/receiving account (money comes in)
+    // Credit: Friends Owe Me (debt is settled)
+
+    if (!friendsAccountId) {
+      return NextResponse.json({
+        error: "missing_friends_account",
+        message: "Friends Owe Me account not found. Please create one first."
+      }, { status: 400 });
+    }
+
+    // Determine receiving account (where the money went - e.g., checking via Zelle)
+    let receivingAccountId = checkingAccountId;
+    if (parsed.data.parsed.accountId) {
+      const selectedAccount = accounts?.find((a) => a.id === parsed.data.parsed.accountId && a.is_active !== false);
+      if (selectedAccount) {
+        receivingAccountId = selectedAccount.id;
+      }
+    } else if (paymentModeName && accounts) {
+      // Try to match account by payment mode name (e.g., "sofi" -> SoFi Checking)
+      const pmLower = paymentModeName.toLowerCase();
+      const matched = accounts.find((a) =>
+        a.is_active !== false && (
+          a.account_name.toLowerCase().includes(pmLower) ||
+          pmLower.includes(a.account_name.toLowerCase())
+        )
+      );
+      if (matched) {
+        receivingAccountId = matched.id;
+      }
+    }
+
+    entries = [
+      { account_id: receivingAccountId, entry_type: "debit", amount_cents: amountCents },
+      { account_id: friendsAccountId, entry_type: "credit", amount_cents: amountCents },
     ];
   } else if (parsed.data.parsed.direction === "transfer") {
     // Transfer between accounts: auto-detect accounts when possible

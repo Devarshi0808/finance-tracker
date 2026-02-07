@@ -2,12 +2,19 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import TransactionList from "@/components/transactions/TransactionList";
 
-export default async function TransactionsPage() {
+type Props = {
+  searchParams: Promise<{ account_id?: string }>;
+};
+
+export default async function TransactionsPage({ searchParams }: Props) {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+
+  const params = await searchParams;
+  const initialAccountId = params.account_id ?? "";
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-6 sm:py-8">
@@ -18,7 +25,7 @@ export default async function TransactionsPage() {
         </p>
       </div>
 
-      <TransactionList />
+      <TransactionList initialAccountId={initialAccountId} />
     </div>
   );
 }

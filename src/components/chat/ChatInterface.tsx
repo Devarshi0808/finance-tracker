@@ -21,6 +21,7 @@ const parseResponseSchema = z.object({
     descriptionSuggestion: z.string().optional(),
     friendShareCents: z.number().int().nonnegative().optional(),
     friendWillReimburse: z.boolean().optional(),
+    isFriendRepayment: z.boolean().optional(), // Friend paying you back (NOT income!)
   }),
 });
 
@@ -103,17 +104,23 @@ export function ChatInterface() {
       const suggestedDescription = sug.descriptionSuggestion || "Transaction";
       const suggestedFriendShareDollars = typeof sug.friendShareDollars === "number" ? Math.max(0, sug.friendShareDollars) : 0;
       const suggestedFriendWillReimburse = Boolean(sug.friendWillReimburse);
+      const suggestedIsFriendRepayment = Boolean(sug.isFriendRepayment);
+
+      // SAFEGUARD: Force "transfer" for friend repayments
+      if (suggestedIsFriendRepayment && suggestedDirection !== "transfer") {
+        suggestedDirection = "transfer";
+      }
 
       // SAFEGUARD: Force "transfer" for credit card payments
       // Patterns like "paid to amex", "paid credit card bill", etc.
       const textLower = text.toLowerCase();
-      const isCreditCardPayment = 
+      const isCreditCardPayment =
         (textLower.includes("paid") || textLower.includes("pay")) &&
-        (textLower.includes("credit card") || textLower.includes("card bill") || 
-         textLower.includes("amex") || textLower.includes("visa") || 
+        (textLower.includes("credit card") || textLower.includes("card bill") ||
+         textLower.includes("amex") || textLower.includes("visa") ||
          textLower.includes("mastercard") || textLower.includes("discover") ||
          textLower.includes("apple card") || textLower.includes("chase freedom"));
-      
+
       if (isCreditCardPayment && suggestedDirection === "expense") {
         suggestedDirection = "transfer";
         // Find the credit card account mentioned
@@ -156,6 +163,7 @@ export function ChatInterface() {
             ? inferredFriend.friendShareCents
             : 0,
         friendWillReimburse: suggestedFriendWillReimburse || inferredFriend.friendWillReimburse || false,
+        isFriendRepayment: suggestedIsFriendRepayment,
       });
       setConfirmOpen(true);
       setMessages((m) => [

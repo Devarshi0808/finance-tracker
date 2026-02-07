@@ -17,6 +17,7 @@ export type ParsedTransaction = {
   descriptionSuggestion?: string;
   friendShareCents?: number;
   friendWillReimburse?: boolean;
+  isFriendRepayment?: boolean; // Friend paying you back (NOT income!)
   isNecessary?: boolean; // Whether this expense is necessary (separate from category)
 };
 

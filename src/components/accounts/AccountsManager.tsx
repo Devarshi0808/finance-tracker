@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { centsToDollars, dollarsToCents } from "@/lib/money";
 
 type Account = {
@@ -51,6 +52,7 @@ const GROUP_CONFIG: Record<AccountGroup, { title: string; emoji: string; addLabe
 };
 
 export function AccountsManager() {
+  const router = useRouter();
   const [accounts, setAccounts] = useState<AccountWithBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState<AccountGroup | null>(null);
@@ -193,6 +195,7 @@ export function AccountsManager() {
           showAddForm={showAddForm === group}
           onAdd={handleAdd}
           onCancelAdd={() => setShowAddForm(null)}
+          onViewTransactions={(accountId) => router.push(`/app/transactions?account_id=${accountId}`)}
         />
       ))}
     </div>
@@ -263,6 +266,7 @@ function AccountGroupSection({
   showAddForm,
   onAdd,
   onCancelAdd,
+  onViewTransactions,
 }: {
   group: AccountGroup;
   accounts: AccountWithBalance[];
@@ -275,6 +279,7 @@ function AccountGroupSection({
   showAddForm: boolean;
   onAdd: (name: string, type: string, balance: number) => void;
   onCancelAdd: () => void;
+  onViewTransactions: (accountId: string) => void;
 }) {
   const canAdd = group !== "friends"; // Friends account is singular
 
@@ -323,6 +328,7 @@ function AccountGroupSection({
               onStartEdit={() => onStartEdit(acc.id)}
               onCancelEdit={onCancelEdit}
               onSaveBalance={(newCents) => onSaveBalance(acc.id, newCents)}
+              onViewTransactions={() => onViewTransactions(acc.id)}
             />
           ))}
         </div>
@@ -338,6 +344,7 @@ function AccountCard({
   onStartEdit,
   onCancelEdit,
   onSaveBalance,
+  onViewTransactions,
 }: {
   account: AccountWithBalance;
   group: AccountGroup;
@@ -345,6 +352,7 @@ function AccountCard({
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onSaveBalance: (cents: number) => void;
+  onViewTransactions: () => void;
 }) {
   const [balanceInput, setBalanceInput] = useState(centsToDollars(Math.abs(account.current_balance_cents)));
 
@@ -399,23 +407,31 @@ function AccountCard({
   }
 
   return (
-    <div className="rounded-xl border bg-white p-5 shadow-sm transition-all hover:shadow-md">
+    <div
+      onClick={onViewTransactions}
+      className="rounded-xl border bg-white p-5 shadow-sm transition-all hover:shadow-md hover:border-purple-300 cursor-pointer group"
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="font-semibold">{account.account_name}</div>
+          <div className="font-semibold group-hover:text-purple-600 transition-colors">
+            {account.account_name}
+          </div>
           <div className="text-sm text-muted-foreground">
             {typeLabels[account.account_type] ?? account.account_type}
+          </div>
+          <div className="text-xs text-purple-500 opacity-0 group-hover:opacity-100 transition-opacity mt-1">
+            Click to view transactions →
           </div>
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right">
             <div className="text-xs text-muted-foreground">
-              {isDebt 
-                ? (account.current_balance_cents < 0 ? "Amount Owed" : "Credit Balance") 
+              {isDebt
+                ? (account.current_balance_cents < 0 ? "Amount Owed" : "Credit Balance")
                 : "Current Balance"}
             </div>
             <div className={`text-lg font-bold ${
-              isDebt 
+              isDebt
                 ? (account.current_balance_cents < 0 ? "text-rose-600" : account.current_balance_cents > 0 ? "text-emerald-600" : "text-gray-500")
                 : (account.current_balance_cents === 0 ? "text-gray-500" : "text-emerald-600")
             }`}>
@@ -429,7 +445,10 @@ function AccountCard({
             </div>
           </div>
           <button
-            onClick={onStartEdit}
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent triggering card click
+              onStartEdit();
+            }}
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm transition-colors hover:bg-gray-50"
           >
             ✏️ Edit
