@@ -30,17 +30,27 @@ function ruleBased(text: string) {
     t.includes("friend reimbursed") ||
     t.includes("friend paid back");
 
-  // Detect transfers (paying credit card bills, moving between accounts)
+  // Detect direct P2P transfers (Zelle, Venmo, etc.) - these are NOT income
+  // They're typically settling debts or receiving money owed
+  const isP2PTransfer =
+    t.includes("zelle") ||
+    t.includes("venmo") ||
+    t.includes("cashapp") ||
+    t.includes("cash app") ||
+    t.includes("paypal") && (t.includes("received") || t.includes("got") || t.includes("sent"));
+
+  // Detect transfers (paying credit card bills, moving between accounts, P2P)
   const isTransfer =
     isFriendRepayment ||
+    isP2PTransfer ||
     (t.includes("paid") && (t.includes("credit card") || t.includes("card bill") || t.includes("amex") || t.includes("visa") || t.includes("mastercard"))) ||
     (t.includes("transfer") && (t.includes("to") || t.includes("from"))) ||
     (t.includes("moved") && (t.includes("savings") || t.includes("checking"))) ||
     (t.includes("pay") && t.includes("bill") && (t.includes("card") || t.includes("amex") || t.includes("chase") || t.includes("discover")));
 
-  // Detect income (but NOT friend repayments)
+  // Detect income (but NOT friend repayments or P2P transfers)
   const isIncome =
-    !isFriendRepayment && (
+    !isFriendRepayment && !isP2PTransfer && (
       t.includes("got paid") ||
       t.includes("paycheck") ||
       t.includes("salary") ||
@@ -65,7 +75,7 @@ function ruleBased(text: string) {
     paymentModeName: undefined,
     friendWillReimburse: false,
     friendShareDollars: 0,
-    isFriendRepayment,
+    isFriendRepayment: isFriendRepayment || isP2PTransfer, // Treat P2P transfers same as friend repayments
     confidence: 0.3,
     used: "rules" as const,
   };
@@ -110,24 +120,28 @@ export async function POST(req: Request) {
           content: `You parse personal finance transactions. Return JSON only.
 
 DIRECTION RULES (important!):
-- "transfer" = Moving money between MY accounts (paying credit card bill, moving to savings, friend paying me back, etc.)
+- "transfer" = Moving money between MY accounts (paying credit card bill, moving to savings, receiving P2P payments, etc.)
 - "expense" = Spending money on goods/services (groceries, gas, coffee, etc.)
-- "income" = Receiving money from external sources (paycheck, salary, refund, gift from non-friend, etc.)
+- "income" = Receiving money from employers/businesses (paycheck, salary, tax refund, business payment)
 
-CRITICAL: Friend repayments are TRANSFERS, not income!
-When a friend pays you back (via Zelle, Venmo, cash, etc.), it's settling a debt - NOT income.
-Set isFriendRepayment=true and direction="transfer" for these cases.
+CRITICAL: P2P transfers (Zelle, Venmo, CashApp, PayPal) are TRANSFERS, not income!
+When receiving money via Zelle/Venmo/etc., it's typically settling a debt or splitting costs - NOT income.
+Set isFriendRepayment=true and direction="transfer" for P2P payments.
+
+Real income comes from: employers (salary/paycheck), businesses, tax refunds, interest, dividends.
 
 EXAMPLES:
 - "paid credit card bill" → transfer
 - "paid amex from checking" → transfer
 - "moved $500 to savings" → transfer
+- "received $50 via zelle" → transfer, isFriendRepayment=true
+- "got $25 on venmo" → transfer, isFriendRepayment=true
 - "friend sent $25 via zelle" → transfer, isFriendRepayment=true
-- "received $50 from friend" → transfer, isFriendRepayment=true
-- "friend paid back for dinner" → transfer, isFriendRepayment=true
+- "cashapp $100" → transfer, isFriendRepayment=true
 - "bought groceries" → expense
 - "uber ride $15" → expense
 - "got paid $2000" → income (salary/paycheck)
+- "paycheck $3000" → income
 - "tax refund $500" → income
 
 OUTPUT FORMAT:
@@ -140,7 +154,7 @@ OUTPUT FORMAT:
   "paymentModeName": "account name mentioned",
   "friendWillReimburse": true/false,
   "friendShareDollars": number or 0,
-  "isFriendRepayment": true/false (true when friend is paying you back)
+  "isFriendRepayment": true/false (true for P2P payments like Zelle/Venmo)
 }
 ${accountsContext}`,
         },
