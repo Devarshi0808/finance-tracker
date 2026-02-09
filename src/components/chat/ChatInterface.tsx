@@ -415,6 +415,7 @@ function ConfirmDrawer(props: {
               <option value="expense">💸 Expense</option>
               <option value="income">💰 Income</option>
               <option value="transfer">🔄 Transfer</option>
+              <option value="other">↩ Other (Refund)</option>
             </select>
           </Field>
 
@@ -484,6 +485,23 @@ function ConfirmDrawer(props: {
                 </select>
               </Field>
             </>
+          )}
+
+          {draft.direction === "other" && (
+            <Field label="Deposit refund to which account?">
+              <select
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2.5 text-gray-900 dark:text-gray-100 transition-all focus:border-[#8B5CF6] focus:outline-none focus:ring-4 focus:ring-[#8B5CF6]/20"
+                value={draft.accountId ?? ""}
+                onChange={(e) => props.onChange({ ...draft, accountId: e.target.value || null })}
+              >
+                <option value="">Select account...</option>
+                {selectableAccounts.map((acc) => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.account_name} ({acc.account_type})
+                  </option>
+                ))}
+              </select>
+            </Field>
           )}
 
           <Field label="Amount (USD)">

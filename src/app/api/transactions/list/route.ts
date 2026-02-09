@@ -10,7 +10,7 @@ const schema = z.object({
   to: z.string().optional(),
   category_id: z.string().uuid().optional(),
   account_id: z.string().uuid().optional(),
-  direction: z.enum(["expense", "income", "transfer"]).optional(),
+  direction: z.enum(["expense", "income", "transfer", "other"]).optional(),
   search: z.string().max(100).optional(),
   show_deleted: z.enum(["true", "false", "only"]).optional(),
   page: z.coerce.number().int().min(1).default(1),
@@ -29,6 +29,9 @@ function deriveDirection(
   for (const entry of txEntries) {
     if (entry.account_id === expenseAccountId && entry.entry_type === "debit") {
       return "expense";
+    }
+    if (entry.account_id === expenseAccountId && entry.entry_type === "credit") {
+      return "other";
     }
     if (entry.account_id === incomeAccountId && entry.entry_type === "credit") {
       return "income";

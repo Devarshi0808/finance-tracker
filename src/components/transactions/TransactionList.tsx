@@ -206,6 +206,8 @@ export default function TransactionList({ initialAccountId = "" }: TransactionLi
         return "text-red-600";
       case "transfer":
         return "text-blue-600";
+      case "other":
+        return "text-purple-600";
       default:
         return "text-gray-900";
     }
@@ -219,6 +221,8 @@ export default function TransactionList({ initialAccountId = "" }: TransactionLi
         return "↑";
       case "transfer":
         return "↔";
+      case "other":
+        return "↩";
       default:
         return "•";
     }

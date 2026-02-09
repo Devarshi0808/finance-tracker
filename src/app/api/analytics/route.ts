@@ -15,13 +15,17 @@ function deriveDirection(
   entries: Array<{ transaction_id: string; account_id: string; entry_type: string; amount_cents: number }>,
   incomeAccountId: string | null,
   expenseAccountId: string | null
-): "income" | "expense" | "transfer" {
+): "income" | "expense" | "transfer" | "other" {
   const txEntries = entries.filter((e) => e.transaction_id === transactionId);
 
   for (const entry of txEntries) {
     // If _Expenses account is debited → expense
     if (entry.account_id === expenseAccountId && entry.entry_type === "debit") {
       return "expense";
+    }
+    // If _Expenses account is credited → other (refund, reverses expense)
+    if (entry.account_id === expenseAccountId && entry.entry_type === "credit") {
+      return "other";
     }
     // If _Income account is credited → income
     if (entry.account_id === incomeAccountId && entry.entry_type === "credit") {
@@ -154,7 +158,7 @@ export async function GET(req: Request) {
         uncategorizedExpenses += amount;
       }
     }
-    // transfers don't affect income/expense totals
+    // transfers and "other" (refunds) don't affect income/expense totals
   }
 
   // Find Friends Owe Me account

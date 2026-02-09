@@ -12,7 +12,7 @@ const schema = z.object({
     transactionDate: z.string().min(10),
     description: z.string().min(1).max(500),
     amountCents: z.number().int().positive().max(MAX_TRANSACTION_AMOUNT),
-    direction: z.enum(["expense", "income", "transfer"]),
+    direction: z.enum(["expense", "income", "transfer", "other"]),
     paymentModeName: z.string().optional(),
     categoryHint: z.string().optional(),
     categoryId: z.string().uuid().optional(), // Direct category ID selection
@@ -23,7 +23,9 @@ const schema = z.object({
     descriptionSuggestion: z.string().optional(),
     friendShareCents: z.number().int().nonnegative().optional(),
     friendWillReimburse: z.boolean().optional(),
-    isFriendRepayment: z.boolean().optional(), // Friend paying you back (NOT income!)
+    isFriendRepayment: z.boolean().optional(), // Friend paying you back for a debt they owe
+    isRefund: z.boolean().optional(), // Refund - reverses previous expense
+    isNonIncomeReceipt: z.boolean().optional(), // Random P2P, gifts (NOT income, NOT friend debt, NOT refund)
     isNecessary: z.boolean().optional(), // Whether this expense is necessary (separate from category)
   }),
   idempotencyKey: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/).optional(), // Validate format: alphanumeric, max 64 chars
@@ -235,6 +237,72 @@ export async function POST(req: Request) {
       }
     } else if (paymentModeName && accounts) {
       // Try to match account by payment mode name (e.g., "sofi" -> SoFi Checking)
+      const pmLower = paymentModeName.toLowerCase();
+      const matched = accounts.find((a) =>
+        a.is_active !== false && (
+          a.account_name.toLowerCase().includes(pmLower) ||
+          pmLower.includes(a.account_name.toLowerCase())
+        )
+      );
+      if (matched) {
+        receivingAccountId = matched.id;
+      }
+    }
+
+    entries = [
+      { account_id: receivingAccountId, entry_type: "debit", amount_cents: amountCents },
+      { account_id: friendsAccountId, entry_type: "credit", amount_cents: amountCents },
+    ];
+  } else if (parsed.data.parsed.isRefund || parsed.data.parsed.direction === "other") {
+    // Refund/Other: reverses a previous expense (refunds, cashback, rebates)
+    // Debit: Checking/receiving account (money comes back)
+    // Credit: _Expenses (expense is reversed, reduces total expenses)
+
+    // Determine receiving account (where the money went - e.g., checking)
+    let receivingAccountId = checkingAccountId;
+    if (parsed.data.parsed.accountId) {
+      const selectedAccount = accounts?.find((a) => a.id === parsed.data.parsed.accountId && a.is_active !== false);
+      if (selectedAccount) {
+        receivingAccountId = selectedAccount.id;
+      }
+    } else if (paymentModeName && accounts) {
+      // Try to match account by payment mode name
+      const pmLower = paymentModeName.toLowerCase();
+      const matched = accounts.find((a) =>
+        a.is_active !== false && (
+          a.account_name.toLowerCase().includes(pmLower) ||
+          pmLower.includes(a.account_name.toLowerCase())
+        )
+      );
+      if (matched) {
+        receivingAccountId = matched.id;
+      }
+    }
+
+    entries = [
+      { account_id: receivingAccountId, entry_type: "debit", amount_cents: amountCents },
+      { account_id: expenseAccountId, entry_type: "credit", amount_cents: amountCents },
+    ];
+  } else if (parsed.data.parsed.isNonIncomeReceipt) {
+    // Random P2P/gifts (non-friend, non-refund)
+    // Debit: Checking/receiving account (money comes in)
+    // Credit: Friends Owe Me (treated same as friend repayment for now)
+
+    if (!friendsAccountId) {
+      return NextResponse.json({
+        error: "missing_friends_account",
+        message: "Friends Owe Me account not found. Please create one first."
+      }, { status: 400 });
+    }
+
+    // Determine receiving account
+    let receivingAccountId = checkingAccountId;
+    if (parsed.data.parsed.accountId) {
+      const selectedAccount = accounts?.find((a) => a.id === parsed.data.parsed.accountId && a.is_active !== false);
+      if (selectedAccount) {
+        receivingAccountId = selectedAccount.id;
+      }
+    } else if (paymentModeName && accounts) {
       const pmLower = paymentModeName.toLowerCase();
       const matched = accounts.find((a) =>
         a.is_active !== false && (

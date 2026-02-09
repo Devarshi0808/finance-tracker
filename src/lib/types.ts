@@ -6,7 +6,7 @@ export type ParsedTransaction = {
   transactionDate: string; // YYYY-MM-DD
   description: string;
   amountCents: number;
-  direction: "expense" | "income" | "transfer";
+  direction: "expense" | "income" | "transfer" | "other";
   paymentModeName?: string;
   categoryHint?: string;
   categoryId?: string | null; // Direct category ID selection
@@ -17,7 +17,9 @@ export type ParsedTransaction = {
   descriptionSuggestion?: string;
   friendShareCents?: number;
   friendWillReimburse?: boolean;
-  isFriendRepayment?: boolean; // Friend paying you back (NOT income!)
+  isFriendRepayment?: boolean; // Friend paying you back for a debt they owe
+  isRefund?: boolean; // Refund - reverses previous expense (credit _Expenses)
+  isNonIncomeReceipt?: boolean; // Random P2P, gifts (NOT income, NOT friend debt, NOT refund)
   isNecessary?: boolean; // Whether this expense is necessary (separate from category)
 };
 
@@ -30,7 +32,7 @@ export type ChatMessage =
 // ============================================
 
 export type TransactionStatus = "completed" | "pending" | "failed" | "recurring";
-export type TransactionDirection = "expense" | "income" | "transfer";
+export type TransactionDirection = "expense" | "income" | "transfer" | "other";
 export type AccountType = "checking" | "savings" | "credit_card" | "emergency_fund" | "income" | "expense" | "friends_owe";
 export type CategoryType = "income" | "expense" | "savings";
 

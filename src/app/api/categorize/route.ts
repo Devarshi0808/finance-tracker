@@ -22,27 +22,44 @@ const schema = z.object({
 function ruleBased(text: string) {
   const t = text.toLowerCase();
 
-  // Detect friend repayment (friend paying you back - NOT income!)
+  // Detect friend repayment (friend paying you back for a DEBT they owe)
+  // Must explicitly mention "friend" AND some form of repayment
   const isFriendRepayment =
-    (t.includes("friend") && (t.includes("paid") || t.includes("sent") || t.includes("venmo") || t.includes("zelle") || t.includes("payback") || t.includes("pay back") || t.includes("paid back") || t.includes("repaid"))) ||
-    (t.includes("received") && t.includes("friend")) ||
-    (t.includes("got") && t.includes("from") && t.includes("friend")) ||
-    t.includes("friend reimbursed") ||
-    t.includes("friend paid back");
+    (t.includes("friend") && (
+      t.includes("paid back") ||
+      t.includes("pay back") ||
+      t.includes("payback") ||
+      t.includes("repaid") ||
+      t.includes("reimbursed") ||
+      t.includes("settling up") ||
+      t.includes("settle up") ||
+      (t.includes("paid") && t.includes("me")) ||
+      (t.includes("sent") && t.includes("me"))
+    ));
 
-  // Detect direct P2P transfers (Zelle, Venmo, etc.) - these are NOT income
-  // They're typically settling debts or receiving money owed
+  // Detect non-income receipts (refunds, random P2P, gifts)
+  // These are NOT friend debt repayments - they're other money received
+  const isRefund =
+    t.includes("refund") ||
+    t.includes("rebate") ||
+    t.includes("cashback") ||
+    t.includes("cash back");
+
   const isP2PTransfer =
-    t.includes("zelle") ||
-    t.includes("venmo") ||
-    t.includes("cashapp") ||
-    t.includes("cash app") ||
-    t.includes("paypal") && (t.includes("received") || t.includes("got") || t.includes("sent"));
+    !isFriendRepayment && ( // Only if NOT a friend repayment
+      t.includes("zelle") ||
+      t.includes("venmo") ||
+      t.includes("cashapp") ||
+      t.includes("cash app") ||
+      (t.includes("paypal") && (t.includes("received") || t.includes("got")))
+    );
 
-  // Detect transfers (paying credit card bills, moving between accounts, P2P)
+  const isNonIncomeReceipt = isRefund || isP2PTransfer;
+
+  // Detect transfers (paying credit card bills, moving between accounts)
   const isTransfer =
     isFriendRepayment ||
-    isP2PTransfer ||
+    isNonIncomeReceipt ||
     (t.includes("paid") && (t.includes("credit card") || t.includes("card bill") || t.includes("amex") || t.includes("visa") || t.includes("mastercard"))) ||
     (t.includes("transfer") && (t.includes("to") || t.includes("from"))) ||
     (t.includes("moved") && (t.includes("savings") || t.includes("checking"))) ||
@@ -50,16 +67,19 @@ function ruleBased(text: string) {
 
   // Detect income (ONLY salary/paycheck - nothing else!)
   const isIncome =
-    !isFriendRepayment && !isP2PTransfer && (
+    !isFriendRepayment && !isNonIncomeReceipt && (
       t.includes("salary") ||
       t.includes("paycheck") ||
-      t.includes("got paid") && (t.includes("work") || t.includes("job"))
+      (t.includes("got paid") && (t.includes("work") || t.includes("job")))
     );
 
-  let direction: "expense" | "income" | "transfer" = "expense";
+  let direction: "expense" | "income" | "transfer" | "other" = "expense";
   let categoryHint = "Personal";
 
-  if (isTransfer) {
+  if (isRefund) {
+    direction = "other";
+    categoryHint = "Other";
+  } else if (isTransfer) {
     direction = "transfer";
     categoryHint = "Transfer";
   } else if (isIncome) {
@@ -73,7 +93,9 @@ function ruleBased(text: string) {
     paymentModeName: undefined,
     friendWillReimburse: false,
     friendShareDollars: 0,
-    isFriendRepayment: isFriendRepayment || isP2PTransfer, // Treat P2P transfers same as friend repayments
+    isFriendRepayment,
+    isRefund,
+    isNonIncomeReceipt: isP2PTransfer, // Only P2P, not refunds
     confidence: 0.3,
     used: "rules" as const,
   };
@@ -118,43 +140,44 @@ export async function POST(req: Request) {
           content: `You parse personal finance transactions. Return JSON only.
 
 DIRECTION RULES (important!):
-- "transfer" = Moving money between MY accounts (paying credit card bill, moving to savings, receiving P2P payments, refunds, etc.)
 - "expense" = Spending money on goods/services (groceries, gas, coffee, etc.)
 - "income" = ONLY salary/paycheck from employer (nothing else!)
+- "transfer" = Moving money between MY accounts (paying credit card bill, moving to savings, receiving P2P payments)
+- "other" = Refunds, cashback, rebates (money received that reverses previous expenses)
 
 CRITICAL RULES:
-1. P2P transfers (Zelle, Venmo, CashApp, PayPal) are TRANSFERS, not income!
-2. Refunds are TRANSFERS (getting money back), not income!
-3. ONLY salary/paycheck from work counts as income!
-4. Tax refunds, interest, dividends, gifts, rebates = ALL transfers, NOT income!
-
-Set isFriendRepayment=true and direction="transfer" for: P2P payments, refunds, any money received that's NOT salary.
+1. ONLY salary/paycheck from work counts as income!
+2. Refunds/cashback MUST use direction="other" (NOT transfer):
+   - isRefund=true, direction="other", categoryHint="Other"
+3. Friend repayments and P2P transfers use direction="transfer":
+   - isFriendRepayment=true: Friend paying back a debt ("friend paid me back for dinner")
+   - isNonIncomeReceipt=true: Random P2P/gifts ("received $50 on Zelle", "got $25 on Venmo")
 
 EXAMPLES:
 - "paid credit card bill" → transfer
-- "paid amex from checking" → transfer
 - "moved $500 to savings" → transfer
-- "received $50 via zelle" → transfer, isFriendRepayment=true, categoryHint="Transfer"
-- "got $25 on venmo" → transfer, isFriendRepayment=true, categoryHint="Transfer"
-- "$42 refund from amazon" → transfer, isFriendRepayment=true, categoryHint="Transfer"
-- "tax refund $500" → transfer, isFriendRepayment=true, categoryHint="Transfer"
-- "bought groceries" → expense, categoryHint="Food"
-- "uber ride $15" → expense, categoryHint="Transportation"
-- "salary $2000" → income, categoryHint="Income"
-- "paycheck $3000" → income, categoryHint="Income"
-- "got paid from work" → income, categoryHint="Income"
+- "friend paid me back $50" → transfer, isFriendRepayment=true, categoryHint="Transfer"
+- "$42 refund from amazon" → other, isRefund=true, categoryHint="Other"
+- "tax refund $500" → other, isRefund=true, categoryHint="Other"
+- "cashback $10" → other, isRefund=true, categoryHint="Other"
+- "received $50 via zelle" → transfer, isNonIncomeReceipt=true, categoryHint="Transfer"
+- "got $25 on venmo" → transfer, isNonIncomeReceipt=true, categoryHint="Transfer"
+- "bought groceries" → expense
+- "salary $2000" → income
 
 OUTPUT FORMAT:
 {
-  "direction": "expense" | "income" | "transfer",
+  "direction": "expense" | "income" | "transfer" | "other",
   "descriptionSuggestion": "2-4 word description",
-  "categoryHint": "Food" | "Transportation" | "Shopping" | "Bills" | "Personal" | "Income" | "Transfer",
-  "accountId": "destination account ID (for income/transfer) or payment account ID (for expense)",
+  "categoryHint": "Food" | "Transportation" | "Shopping" | "Personal" | "Income" | "Transfer" | "Other",
+  "accountId": "destination account ID",
   "fromAccountId": "source account ID (only for transfers)",
   "paymentModeName": "account name mentioned",
   "friendWillReimburse": true/false,
   "friendShareDollars": number or 0,
-  "isFriendRepayment": true/false (true for P2P payments, refunds, any non-salary money received)
+  "isFriendRepayment": true/false,
+  "isRefund": true/false,
+  "isNonIncomeReceipt": true/false
 }
 ${accountsContext}`,
         },
@@ -165,7 +188,7 @@ ${accountsContext}`,
 
     const content = resp.choices[0]?.message?.content ?? "{}";
     const json = JSON.parse(content) as {
-      direction?: "expense" | "income" | "transfer";
+      direction?: "expense" | "income" | "transfer" | "other";
       categoryHint?: string;
       paymentModeName?: string;
       accountId?: string | null;
@@ -175,6 +198,8 @@ ${accountsContext}`,
       friendWillReimburse?: boolean;
       friendShareDollars?: number;
       isFriendRepayment?: boolean;
+      isRefund?: boolean;
+      isNonIncomeReceipt?: boolean;
     };
 
     // Validate accountId exists in provided accounts
@@ -186,7 +211,7 @@ ${accountsContext}`,
       json.fromAccountId && accounts.some((a) => a.id === json.fromAccountId) ? json.fromAccountId : null;
 
     // Validate direction
-    const validDirection = ["expense", "income", "transfer"].includes(json.direction || "")
+    const validDirection = ["expense", "income", "transfer", "other"].includes(json.direction || "")
       ? json.direction
       : "expense";
 
@@ -204,6 +229,8 @@ ${accountsContext}`,
             ? json.friendShareDollars
             : 0,
         isFriendRepayment: Boolean(json.isFriendRepayment),
+        isRefund: Boolean(json.isRefund),
+        isNonIncomeReceipt: Boolean(json.isNonIncomeReceipt),
         confidence: typeof json.confidence === "number" ? json.confidence : 0.6,
         used: "openai" as const,
       },
