@@ -88,11 +88,12 @@ export async function POST() {
       { user_id: user.id, name: "Household", type: "expense", is_necessary: true },
       { user_id: user.id, name: "Recreational", type: "expense", is_necessary: false },
       { user_id: user.id, name: "Savings", type: "savings", is_necessary: true },
+      { user_id: user.id, name: "Transfer", type: "expense", is_necessary: false },
     ]);
     if (catErr) {
       results.errors.push("categories_insert_failed");
     }
-    else results.categoriesInserted = 6;
+    else results.categoriesInserted = 7;
   } else {
     results.categoriesInserted = 0;
   }

@@ -48,14 +48,12 @@ function ruleBased(text: string) {
     (t.includes("moved") && (t.includes("savings") || t.includes("checking"))) ||
     (t.includes("pay") && t.includes("bill") && (t.includes("card") || t.includes("amex") || t.includes("chase") || t.includes("discover")));
 
-  // Detect income (but NOT friend repayments or P2P transfers)
+  // Detect income (ONLY salary/paycheck - nothing else!)
   const isIncome =
     !isFriendRepayment && !isP2PTransfer && (
-      t.includes("got paid") ||
-      t.includes("paycheck") ||
       t.includes("salary") ||
-      t.includes("refund") ||
-      (t.includes("income") && !t.includes("expense"))
+      t.includes("paycheck") ||
+      t.includes("got paid") && (t.includes("work") || t.includes("job"))
     );
 
   let direction: "expense" | "income" | "transfer" = "expense";
@@ -120,29 +118,31 @@ export async function POST(req: Request) {
           content: `You parse personal finance transactions. Return JSON only.
 
 DIRECTION RULES (important!):
-- "transfer" = Moving money between MY accounts (paying credit card bill, moving to savings, receiving P2P payments, etc.)
+- "transfer" = Moving money between MY accounts (paying credit card bill, moving to savings, receiving P2P payments, refunds, etc.)
 - "expense" = Spending money on goods/services (groceries, gas, coffee, etc.)
-- "income" = Receiving money from employers/businesses (paycheck, salary, tax refund, business payment)
+- "income" = ONLY salary/paycheck from employer (nothing else!)
 
-CRITICAL: P2P transfers (Zelle, Venmo, CashApp, PayPal) are TRANSFERS, not income!
-When receiving money via Zelle/Venmo/etc., it's typically settling a debt or splitting costs - NOT income.
-Set isFriendRepayment=true and direction="transfer" for P2P payments.
+CRITICAL RULES:
+1. P2P transfers (Zelle, Venmo, CashApp, PayPal) are TRANSFERS, not income!
+2. Refunds are TRANSFERS (getting money back), not income!
+3. ONLY salary/paycheck from work counts as income!
+4. Tax refunds, interest, dividends, gifts, rebates = ALL transfers, NOT income!
 
-Real income comes from: employers (salary/paycheck), businesses, tax refunds, interest, dividends.
+Set isFriendRepayment=true and direction="transfer" for: P2P payments, refunds, any money received that's NOT salary.
 
 EXAMPLES:
 - "paid credit card bill" → transfer
 - "paid amex from checking" → transfer
 - "moved $500 to savings" → transfer
-- "received $50 via zelle" → transfer, isFriendRepayment=true
-- "got $25 on venmo" → transfer, isFriendRepayment=true
-- "friend sent $25 via zelle" → transfer, isFriendRepayment=true
-- "cashapp $100" → transfer, isFriendRepayment=true
-- "bought groceries" → expense
-- "uber ride $15" → expense
-- "got paid $2000" → income (salary/paycheck)
-- "paycheck $3000" → income
-- "tax refund $500" → income
+- "received $50 via zelle" → transfer, isFriendRepayment=true, categoryHint="Transfer"
+- "got $25 on venmo" → transfer, isFriendRepayment=true, categoryHint="Transfer"
+- "$42 refund from amazon" → transfer, isFriendRepayment=true, categoryHint="Transfer"
+- "tax refund $500" → transfer, isFriendRepayment=true, categoryHint="Transfer"
+- "bought groceries" → expense, categoryHint="Food"
+- "uber ride $15" → expense, categoryHint="Transportation"
+- "salary $2000" → income, categoryHint="Income"
+- "paycheck $3000" → income, categoryHint="Income"
+- "got paid from work" → income, categoryHint="Income"
 
 OUTPUT FORMAT:
 {
@@ -154,7 +154,7 @@ OUTPUT FORMAT:
   "paymentModeName": "account name mentioned",
   "friendWillReimburse": true/false,
   "friendShareDollars": number or 0,
-  "isFriendRepayment": true/false (true for P2P payments like Zelle/Venmo)
+  "isFriendRepayment": true/false (true for P2P payments, refunds, any non-salary money received)
 }
 ${accountsContext}`,
         },
